@@ -1,0 +1,11 @@
+# Compiled Lua sources
+luac.out
+
+# Luarocks
+*.src.rock
+*.zip
+*.tar.gz
+
+# OS junk
+.DS_Store
+Thumbs.db
