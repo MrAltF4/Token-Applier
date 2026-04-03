@@ -387,7 +387,7 @@
 	
 
 	local function showDynamicButtons(targetGUID, tokenCount)
-	    local expectedCount = 5
+	    local expectedCount = 6
 	    if tokenCount >= 2 then expectedCount = expectedCount + 2 end
 	    expectedCount = expectedCount + math.min(tokenCount, MAX_TOKENS) * 2
 
@@ -399,7 +399,7 @@
 	    self.createButton({
 			label = "▲", tooltip = "Raise token height",
 			click_function = "btn_heightUp", function_owner = self,
-			position = { 4.8, 0.2, 1.5 }, width = 400, height = 400, font_size = 250,
+			position = { SCALE_BTN_X, 0.2, 2.3 }, width = 400, height = 400, font_size = 250,
 			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
 		})
 		dynamicButtonCount = dynamicButtonCount + 1
@@ -407,7 +407,7 @@
 		self.createButton({
 			label = "▼", tooltip = "Lower token height",
 			click_function = "btn_heightDown", function_owner = self,
-			position = { 4.8, 0.2, 3.1 }, width = 400, height = 400, font_size = 250,
+			position = { FLIP_BTN_X, 0.2, 2.3 }, width = 400, height = 400, font_size = 250,
 			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
 		})
 		dynamicButtonCount = dynamicButtonCount + 1
