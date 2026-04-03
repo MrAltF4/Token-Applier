@@ -397,7 +397,7 @@
 	
 
 	local function showDynamicButtons(targetGUID, tokenCount)
-	    local expectedCount = 6
+	    local expectedCount = 7
 	    if tokenCount >= 2 then expectedCount = expectedCount + 2 end
 	    expectedCount = expectedCount + math.min(tokenCount, MAX_TOKENS) * 2
 
@@ -406,7 +406,7 @@
 	    clearAllDynamicButtons()
 	    tokenNameBtnIndices = {}
 
-	    self.createButton({
+	    self.createButton({ -- height down
 			label = "▲", tooltip = "Raise token height",
 			click_function = "btn_heightUp", function_owner = self,
 			position = { SCALE_BTN_X, 0.2, 2.3 }, width = 400, height = 400, font_size = 250,
@@ -414,7 +414,7 @@
 		})
 		dynamicButtonCount = dynamicButtonCount + 1
 
-		self.createButton({
+		self.createButton({ -- height down
 			label = "▼", tooltip = "Lower token height",
 			click_function = "btn_heightDown", function_owner = self,
 			position = { FLIP_BTN_X, 0.2, 2.3 }, width = 400, height = 400, font_size = 250,
@@ -422,7 +422,7 @@
 		})
 		dynamicButtonCount = dynamicButtonCount + 1
 
-	    self.createButton({
+	    self.createButton({ -- Scale up
 	        label = "•", tooltip = "Scale up\nall tokens, or just selected",
 	        click_function = "btn_scaleUp", function_owner = self,
 	        position = { SCALE_BTN_X, 0.2, 1.5 }, width = 400, height = 400, font_size = 400,
@@ -430,7 +430,7 @@
 	    })
 	    dynamicButtonCount = dynamicButtonCount + 1
 
-	    self.createButton({
+	    self.createButton({ -- Scale down
 	        label = "·", tooltip = "Scale down\nall tokens, or just selected",
 	        click_function = "btn_scaleDown", function_owner = self,
 	        position = { SCALE_BTN_X, 0.2, 3.1 }, width = 400, height = 400, font_size = 400,
@@ -439,7 +439,7 @@
 	    dynamicButtonCount      = dynamicButtonCount + 1
 	    dynamicState.scaleShown = true
 
-	    self.createButton({
+	    self.createButton({  -- Flip
 	        label = "Flip", tooltip = "Flip token\nall tokens, or just selected",
 	        click_function = "btn_flip", function_owner = self,
 	        position = { FLIP_BTN_X, 0.2, 1.5 }, width = 400, height = 400, font_size = 180,
@@ -447,16 +447,24 @@
 	    })
 	    dynamicButtonCount = dynamicButtonCount + 1
 
-	    self.createButton({
+	    self.createButton({ -- Rotate
 	        label = "↻", tooltip = "Rotate token 180°\nall tokens, or just selected",
 	        click_function = "btn_rotate", function_owner = self,
 	        position = { ROTATE_BTN_X, 0.2, 3.1 }, width = 400, height = 400, font_size = 180,
 	        color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
 	    })
 	    dynamicButtonCount = dynamicButtonCount + 1
+		
+		self.createButton({ -- Vertical token
+			label = "↕", tooltip = "Toggle vertical\nall tokens, or just selected",
+			click_function = "btn_vertical", function_owner = self,
+			position = { 6, 0.2, 1.5 }, width = 400, height = 400, font_size = 180,
+			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
+		})
+		dynamicButtonCount = dynamicButtonCount + 1
 
 	    if tokenCount >= 2 then
-	        self.createButton({
+	        self.createButton({ -- Spread up
 	            label = "⁛", tooltip = "Increase spread\ni.e. distance between tokens",
 	            click_function = "btn_radiusUp", function_owner = self,
 	            position = { 6, 0.2, RADIUS_BTN_Z }, width = 400, height = 400, font_size = 300,
@@ -464,7 +472,7 @@
 	        })
 	        dynamicButtonCount = dynamicButtonCount + 1
 
-	        self.createButton({
+	        self.createButton({ -- Spread down
 	            label = "⁘", tooltip = "Decrease spread\ni.e. distance between tokens",
 	            click_function = "btn_radiusDown", function_owner = self,
 	            position = { 3.6, 0.2, RADIUS_BTN_Z }, width = 400, height = 400, font_size = 200,
@@ -943,7 +951,7 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  FLIP AND ROTATE TOKENS
+--  FLIP, ROTATE & VERTICLE TOKENS
 -- ──────────────────────────────────────────────────────────────
 
 	local function applyTransformToTokens(targetGUID, playerColor, transformFn)
@@ -989,6 +997,16 @@
 	    end)
 	end
 
+	function btn_vertical(_, playerColor)
+		local sel = Player[playerColor].getSelectedObjects()
+		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+		applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
+			entry.vertical = not entry.vertical
+			local rot = token.getRotation()
+			local newX = entry.vertical and 90 or 0
+			token.setRotation({ newX, rot.y, rot.z })
+		end)
+	end
 -- ──────────────────────────────────────────────────────────────
 --  RADIUS ADJUST
 -- ──────────────────────────────────────────────────────────────
@@ -1088,7 +1106,7 @@
 	        end
 	        token.setLock(true)
 	        local newGUID = token.getGUID()
-	        hoverEntries[newGUID] = { targetGUID=targetGUID, offset=offset, scale=scale, flipped=false, rotated=false }
+	        hoverEntries[newGUID] = { targetGUID=targetGUID, offset=offset, scale=scale, flipped=false, rotated=false, vertical=false }
 	        saveState()
 	        local targetObj  = getObjectFromGUID(targetGUID)
 	        local targetName = targetObj and targetObj.getName() or "Unknown"
@@ -1255,12 +1273,13 @@
 	                    newToken.setLock(true)
 	                    local newGUID = newToken.getGUID()
 	                    hoverEntries[newGUID] = {
-	                        targetGUID = r.entry.targetGUID,
-	                        offset     = r.entry.offset,
-	                        scale      = r.entry.scale,
-	                        flipped    = r.entry.flipped,
-	                        rotated    = r.entry.rotated,
-	                    }
+							targetGUID = r.entry.targetGUID,
+							offset     = r.entry.offset,
+							scale      = r.entry.scale,
+							flipped    = r.entry.flipped,
+							rotated    = r.entry.rotated,
+							vertical   = r.entry.vertical or false,
+						}
 	                    saveState()
 	                end
 	            end)
