@@ -8,7 +8,7 @@
 --  OTHER VARIABLES
 -- ──────────────────────────────────────────────────────────────
 	local FLOAT_HEIGHT_LOW  = 5.0
-	local FLOAT_HEIGHT_HIGH = 7.5
+	local HEIGHT_STEP       = 0.5
 	local FOLLOW_INTERVAL   = 0.2
 	local SPREAD_RADIUS_DEFAULT = 1.0
 	local MAX_TOKENS        = 6
@@ -26,7 +26,7 @@
 	local modelRadius       = {}
 	local templateJSON      = nil
 	local templateScale     = nil
-	local heightMode        = "low"
+	--local heightMode        = "low"
 	local previewGUID       = nil
 	local PREVIEW_HEIGHT    = 1.0
 	local lastSelectedGUID  = nil
@@ -84,7 +84,7 @@
 	        modelRadius   = modelRadius,
 	        templateJSON  = templateJSON,
 	        templateScale = templateScale,
-	        heightMode    = heightMode,
+	        --heightMode    = heightMode,
 	        previewGUID   = previewGUID,
 	        tokenHistory  = tokenHistory,
 	    }
@@ -108,7 +108,6 @@
 	    if type(data.modelRadius)   == "table"  then modelRadius   = data.modelRadius   end
 	    if type(data.templateJSON)  == "string" then templateJSON  = data.templateJSON  end
 	    if type(data.templateScale) == "table"  then templateScale = data.templateScale end
-	    heightMode = (data.heightMode == "high") and "high" or "low"
 	    if type(data.previewGUID)   == "string" then previewGUID   = data.previewGUID   end
 	    if type(data.tokenHistory)  == "table"  then tokenHistory  = data.tokenHistory  end
 	end
@@ -327,14 +326,15 @@
 	}
 
 	local DYN_START       = 5
-	local DYN_HEIGHT      = DYN_START + 0
-	local DYN_SCALE_UP    = DYN_START + 1
-	local DYN_SCALE_DOWN  = DYN_START + 2
-	local DYN_FLIP        = DYN_START + 3
-	local DYN_ROTATE      = DYN_START + 4
-	local DYN_RADIUS_UP   = DYN_START + 5
-	local DYN_RADIUS_DOWN = DYN_START + 6
-	local DYN_REMOVE_BASE = DYN_START + 7
+	local DYN_HEIGHT_UP   = DYN_START + 0
+	local DYN_HEIGHT_DOWN = DYN_START + 1
+	local DYN_SCALE_UP    = DYN_START + 2
+	local DYN_SCALE_DOWN  = DYN_START + 3
+	local DYN_FLIP        = DYN_START + 4
+	local DYN_ROTATE      = DYN_START + 5
+	local DYN_RADIUS_UP   = DYN_START + 6
+	local DYN_RADIUS_DOWN = DYN_START + 7
+	local DYN_REMOVE_BASE = DYN_START + 8
 
 	local SCALE_BTN_X      =  4.4
 	local FLIP_BTN_X       =  5.2
@@ -384,26 +384,7 @@
 	    selectedTokenGUID        = nil
 	end
 
-	local function getHeightLabel(targetGUID)
-	    local tokens = findTokensForTarget(targetGUID)
-	    if selectedTokenGUID and hoverEntries[selectedTokenGUID]
-	        and hoverEntries[selectedTokenGUID].targetGUID == targetGUID then
-	        local entry = hoverEntries[selectedTokenGUID]
-	        return entry and entry.offset == FLOAT_HEIGHT_HIGH and "▼ Lower" or "▲ Lift"
-	    else
-	        local hasLow, hasHigh = false, false
-	        for _, tGUID in ipairs(tokens) do
-	            local entry = hoverEntries[tGUID]
-	            if entry then
-	                if entry.offset == FLOAT_HEIGHT_HIGH then hasHigh = true
-	                else hasLow = true end
-	            end
-	        end
-	        if hasLow and hasHigh then return "⇅ Sync" end
-	        if hasHigh             then return "▼ Lower" end
-	        return "▲ Lift"
-	    end
-	end
+	
 
 	local function showDynamicButtons(targetGUID, tokenCount)
 	    local expectedCount = 5
@@ -416,12 +397,20 @@
 	    tokenNameBtnIndices = {}
 
 	    self.createButton({
-	        label = getHeightLabel(targetGUID), tooltip = "Lift/Lower tokens.\nMixed heights: Sync sets all to Low",
-	        click_function = "btn_heightToggle", function_owner = self,
-	        position = { 4.8, 0.2, 2.3 }, width = 800, height = 400, font_size = 180,
-	        color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
-	    })
-	    dynamicButtonCount = dynamicButtonCount + 1
+			label = "▲", tooltip = "Raise token height",
+			click_function = "btn_heightUp", function_owner = self,
+			position = { 4.8, 0.2, 1.5 }, width = 400, height = 400, font_size = 250,
+			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
+		})
+		dynamicButtonCount = dynamicButtonCount + 1
+
+		self.createButton({
+			label = "▼", tooltip = "Lower token height",
+			click_function = "btn_heightDown", function_owner = self,
+			position = { 4.8, 0.2, 3.1 }, width = 400, height = 400, font_size = 250,
+			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
+		})
+		dynamicButtonCount = dynamicButtonCount + 1
 
 	    self.createButton({
 	        label = "•", tooltip = "Scale up\nall tokens, or just selected",
@@ -564,9 +553,6 @@
 	                font_color = isSelected and { 0.4, 0.8, 1.0 }        or { 0.6, 0.6, 0.8 },
 	            })
 	        end
-	    end
-	    if lastSelectedGUID then
-	        self.editButton({ index = DYN_HEIGHT, label = getHeightLabel(lastSelectedGUID) })
 	    end
 	end
 
@@ -872,39 +858,36 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  HEIGHT TOGGLE
+--  HEIGHT TOKENS
 -- ──────────────────────────────────────────────────────────────
 
-	function btn_heightToggle(_, playerColor)
-	    local sel = Player[playerColor].getSelectedObjects()
-	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
-	    local targetGUID = sel[1].getGUID()
-	    local tokens     = findTokensForTarget(targetGUID)
-	    if #tokens == 0 then return end
-	    if selectedTokenGUID and hoverEntries[selectedTokenGUID]
-	        and hoverEntries[selectedTokenGUID].targetGUID == targetGUID then
-	        local entry = hoverEntries[selectedTokenGUID]
-	        local newOffset = (entry.offset == FLOAT_HEIGHT_HIGH) and FLOAT_HEIGHT_LOW or FLOAT_HEIGHT_HIGH
-	        entry.offset = newOffset
-	        heightMode   = (newOffset == FLOAT_HEIGHT_HIGH) and "high" or "low"
-	    else
-	        local hasLow, hasHigh = false, false
-	        for _, tGUID in ipairs(tokens) do
-	            local entry = hoverEntries[tGUID]
-	            if entry then
-	                if entry.offset == FLOAT_HEIGHT_HIGH then hasHigh = true else hasLow = true end
-	            end
-	        end
-	        local newOffset
-	        if hasLow and hasHigh then newOffset = FLOAT_HEIGHT_LOW ; heightMode = "low"
-	        elseif hasHigh        then newOffset = FLOAT_HEIGHT_LOW ; heightMode = "low"
-	        else                       newOffset = FLOAT_HEIGHT_HIGH; heightMode = "high" end
-	        for _, tGUID in ipairs(tokens) do
-	            if hoverEntries[tGUID] then hoverEntries[tGUID].offset = newOffset end
-	        end
-	    end
-	    saveState()
-	    self.editButton({ index = DYN_HEIGHT, label = getHeightLabel(targetGUID) })
+	local function applyHeightToTokens(targetGUID, delta, playerColor)
+		local tokens = findTokensForTarget(targetGUID)
+		if #tokens == 0 then printToColor("No tokens on selected model.", playerColor, { 1, 1, 0 }) return end
+		local targets = {}
+		if selectedTokenGUID and hoverEntries[selectedTokenGUID]
+			and hoverEntries[selectedTokenGUID].targetGUID == targetGUID then
+			targets = { selectedTokenGUID }
+		else
+			targets = tokens
+		end
+		for _, tGUID in ipairs(targets) do
+			local entry = hoverEntries[tGUID]
+			if entry then entry.offset = entry.offset + delta end
+		end
+		saveState()
+	end
+
+	function btn_heightUp(_, playerColor)
+		local sel = Player[playerColor].getSelectedObjects()
+		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+		applyHeightToTokens(sel[1].getGUID(), HEIGHT_STEP, playerColor)
+	end
+
+	function btn_heightDown(_, playerColor)
+		local sel = Player[playerColor].getSelectedObjects()
+		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+		applyHeightToTokens(sel[1].getGUID(), -HEIGHT_STEP, playerColor)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1072,20 +1055,20 @@
 	        return
 	    end
 	    local sel = Player[playerColor].getSelectedObjects()
-	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
-	    local target     = sel[1]
-	    local targetGUID = target.getGUID()
-	    if target == self then
-	        printToColor("Cannot attach a token to the controller.", playerColor, { 1, 0.3, 0.3 }) return
+			if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+			local target     = sel[1]
+			local targetGUID = target.getGUID()
+			if target == self then
+				printToColor("Cannot attach a token to the controller.", playerColor, { 1, 0.3, 0.3 }) return
 	    end
 	    if previewGUID and targetGUID == previewGUID then
 	        printToColor("Cannot attach a token to the template preview.", playerColor, { 1, 0.3, 0.3 }) return
 	    end
 	    local existing = findTokensForTarget(targetGUID)
-	    if #existing >= MAX_TOKENS then
-	        printToColor("Maximum tokens (" .. MAX_TOKENS .. ") already attached.", playerColor, { 1, 0.5, 0 }) return
+			if #existing >= MAX_TOKENS then
+				printToColor("Maximum tokens (" .. MAX_TOKENS .. ") already attached.", playerColor, { 1, 0.5, 0 }) return
 	    end
-	    local offset = (heightMode == "high") and FLOAT_HEIGHT_HIGH or FLOAT_HEIGHT_LOW
+	    local offset = FLOAT_HEIGHT_LOW
 	    local scale  = templateScale and { x=templateScale.x, y=templateScale.y, z=templateScale.z } or nil
 	    local pos    = target.getPosition()
 	    pos.y = pos.y + offset
