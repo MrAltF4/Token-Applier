@@ -5,7 +5,7 @@
 
 
 -- ──────────────────────────────────────────────────────────────
---  OTHER VARIABLES
+--  OTHER CONSTANTS
 -- ──────────────────────────────────────────────────────────────
 	local FLOAT_HEIGHT_LOW  = 5.0
 	local HEIGHT_STEP       = 0.5
@@ -18,15 +18,16 @@
 	local HEAL_RADIUS       = 0.2
 	local HISTORY_MAX       = 8
 	local DROP_EJECT_OFFSET = 3.5
+	local PICKUP_HEIGHT_BOOST = 50.0
+	local PICKUP_SCALE_SHRINK = 0.01
 
 -- ──────────────────────────────────────────────────────────────
---  STATE
+--  STATE VARIABLES
 -- ──────────────────────────────────────────────────────────────
 	local hoverEntries      = {}
 	local modelRadius       = {}
 	local templateJSON      = nil
 	local templateScale     = nil
-	--local heightMode        = "low"
 	local previewGUID       = nil
 	local PREVIEW_HEIGHT    = 1.0
 	local lastSelectedGUID  = nil
@@ -41,6 +42,8 @@
 	local selectionLoopRunning = false
 	local tokenHistory         = {}
 	local collisionCooldown    = false  -- debounce flag for onCollisionEnter
+	local heldModels = {}
+	
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -1260,6 +1263,56 @@
 	    saveState()
 	    printToAll("Restored " .. restored .. " hover token(s).", { 0.3, 0.8, 1 })
 	end
+
+-- ──────────────────────────────────────────────────────────────
+--  PICK UP / DROP  (auto-raise defence)
+--       Makes the token "dissapear" when model is picked up. Then reappear once dropped.
+-- ──────────────────────────────────────────────────────────────
+
+function onObjectPickUp(_, object)
+    local guid = object.getGUID()
+    local tokens = findTokensForTarget(guid)
+    if #tokens == 0 then return end
+    heldModels[guid] = true
+    for _, tGUID in ipairs(tokens) do
+        local token = getObjectFromGUID(tGUID)
+        local entry = hoverEntries[tGUID]
+        if token and entry then
+            local s = entry.scale or { x=1.0, y=1.0, z=1.0 }
+            token.setLock(false)
+            pcall(function()
+                token.setScale({ PICKUP_SCALE_SHRINK, PICKUP_SCALE_SHRINK, PICKUP_SCALE_SHRINK })
+                token.setPosition({
+                    token.getPosition().x,
+                    token.getPosition().y + PICKUP_HEIGHT_BOOST,
+                    token.getPosition().z,
+                })
+            end)
+            token.setLock(true)
+        end
+    end
+end
+
+function onObjectDrop(_, object)
+    local guid = object.getGUID()
+    if not heldModels[guid] then return end
+    heldModels[guid] = nil
+    local tokens = findTokensForTarget(guid)
+    for _, tGUID in ipairs(tokens) do
+        local token = getObjectFromGUID(tGUID)
+        local entry = hoverEntries[tGUID]
+        if token and entry then
+            local s = entry.scale or { x=1.0, y=1.0, z=1.0 }
+            token.setLock(false)
+            pcall(function()
+                token.setScale({ s.x, s.y, s.z })
+            end)
+            token.setLock(true)
+        end
+    end
+end
+
+
 
 -- ──────────────────────────────────────────────────────────────
 --  DEBUG
