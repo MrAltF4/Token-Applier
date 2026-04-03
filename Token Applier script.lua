@@ -158,20 +158,27 @@
 	    return modelRadius[targetGUID] or SPREAD_RADIUS_DEFAULT
 	end
 
-	local function shortName(name, maxLenPerLine, maxLines)
-	    maxLenPerLine = maxLenPerLine or 8
-	    maxLines      = maxLines or 5
-	    local result  = {}
-	    local i = 1
-	    for line = 1, maxLines do
-	        if i > #name then break end
-	        table.insert(result, name:sub(i, i + maxLenPerLine - 1))
-	        i = i + maxLenPerLine
-	    end
-	    if i <= #name then
-	        result[#result] = result[#result]:sub(1, -2) .. "…"
-	    end
-	    return table.concat(result, "\n")
+	local function shortName(name, maxWidth, maxLines)
+		maxWidth  = maxWidth  or 8
+		maxLines  = maxLines  or 3
+		local lines  = {}
+		local current = ""
+		for word in name:gmatch("%S+") do
+			if current == "" then
+				current = word
+			elseif #current + 1 + #word <= maxWidth then
+				current = current .. " " .. word
+			else
+				table.insert(lines, current)
+				if #lines >= maxLines then
+					lines[#lines] = lines[#lines]:sub(1, -2) .. "…"
+					return table.concat(lines, "\n")
+				end
+				current = word
+			end
+		end
+		if current ~= "" then table.insert(lines, current) end
+		return table.concat(lines, "\n")
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -298,7 +305,7 @@
 	            table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
 	        elseif entry then
 	            local display = shortName(entry.name, 5, 3)
-	            table.insert(lines, '      <Text text="' .. display .. '" fontSize="14" color="#73A678" alignment="MiddleCenter" width="80" height="80" />')
+	            table.insert(lines, '      <Text text="' .. display .. '" fontSize="20" color="#FFFFFF" alignment="MiddleCenter" width="80" height="80" />')
 	        else
 	            table.insert(lines, '      <Text text="·" fontSize="20" color="#404040" alignment="MiddleCenter" width="58" height="58" />')
 	        end
