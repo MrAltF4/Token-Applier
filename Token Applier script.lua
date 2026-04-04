@@ -32,20 +32,15 @@
 	local PREVIEW_HEIGHT    = 1.0
 	local lastSelectedGUID  = nil
 	local selectedTokenGUID = nil
-	local tokenNameBtnIndices = {}
-	local dynamicState = {
-	    removeCount  = 0,
-	    scaleShown   = false,
-	    radiusShown  = false,
-	}
 	local followLoopRunning    = false
 	local selectionLoopRunning = false
 	local tokenHistory         = {}
 	local collisionCooldown    = false
 	local heldModels           = {}
 	local settingsOpen         = false
-	local hudVisible           = true   -- HUD toggle state
-	local hudEnabled           = true   -- false = HUD fully removed from Global UI
+	local hudVisible           = true
+	local hudEnabled           = true
+	local dynPanelVisible      = false  -- tracks whether dynamic panel is currently shown
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -53,67 +48,90 @@
 	local spawnPreview
 	local refreshTemplateButton
 	local rebuildXML
-	local rebuildHUD          -- NEW: forward-declare HUD builder
+	local rebuildHUD
 	local hudRebuildPending = false
 
 -- ──────────────────────────────────────────────────────────────
 --  BUTTON STYLES
---  Centralised colour/transition definitions for all XML buttons.
---  Each style defines the four Unity button states as a pipe-
---  separated string: normal|highlighted|pressed|disabled
---  transition="ColorTint" makes TTS smoothly tint between them.
 -- ──────────────────────────────────────────────────────────────
 
 	local BTN_STYLE = {
-	    -- Primary action (Add Token)
 	    primary = {
 	        colors     = "#0D2B40F2|#1A5C8AF2|#0A1F2EF2|#333333AA",
 	        textColor  = "#3CCCFF",
 	        transition = "ColorTint",
 	    },
-	    -- Passive/info (Set Template label)
 	    template = {
 	        colors     = "#111111B2|#222222CC|#0A0A0AB2|#333333AA",
 	        textColor  = "#CCCC44",
 	        transition = "ColorTint",
 	    },
-	    -- Settings gear and neutral utility
 	    settings = {
 	        colors     = "#000000F2|#222222F2|#111111F2|#333333AA",
 	        textColor  = "#FDFF6F",
 	        transition = "ColorTint",
 	    },
-	    -- Settings panel inner buttons (restore, debug, clear, HUD)
 	    settingsItem = {
 	        colors     = "#484716F2|#6B6B22F2|#303010F2|#333333AA",
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
-	    -- Danger/destructive (clear history, HUD OFF state)
 	    danger = {
 	        colors     = "#2B0D0DF2|#5A1A1AF2|#1F0A0AF2|#333333AA",
 	        textColor  = "#FF6060",
 	        transition = "ColorTint",
 	    },
-	    -- Active/selected (active history slot, HUD ON state)
 	    active = {
 	        colors     = "#15AFCCF2|#1DCEF0F2|#0F8099F2|#333333AA",
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
-	    -- Empty/inactive (empty history slot)
 	    ghost = {
 	        colors     = "#080808B2|#141414CC|#050505B2|#333333AA",
 	        textColor  = "#404040",
 	        transition = "ColorTint",
 	    },
-	    -- History slot with content
 	    historySlot = {
 	        colors     = "#0D140DF2|#1A281AF2|#08100AF2|#333333AA",
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
-	    -- HUD action buttons
+	    -- Dynamic panel modifier buttons
+	    dynMod = {
+	        colors     = "#0D0D0DE6|#222222F2|#080808E6|#333333AA",
+	        textColor  = "#CC99FF",
+	        transition = "ColorTint",
+	    },
+	    -- Dynamic panel scale up
+	    dynScaleUp = {
+	        colors     = "#0D0D0DE6|#1A2B1AE6|#080808E6|#333333AA",
+	        textColor  = "#80FF80",
+	        transition = "ColorTint",
+	    },
+	    -- Dynamic panel scale down
+	    dynScaleDown = {
+	        colors     = "#0D0D0DE6|#2B1A1AE6|#080808E6|#333333AA",
+	        textColor  = "#FF8080",
+	        transition = "ColorTint",
+	    },
+	    -- Token name slot (unselected)
+	    dynSlot = {
+	        colors     = "#0D0D26E6|#141433F2|#08081AE6|#333333AA",
+	        textColor  = "#9999CC",
+	        transition = "ColorTint",
+	    },
+	    -- Token name slot (selected)
+	    dynSlotSelected = {
+	        colors     = "#1A3366F2|#2244AAF2|#0F2244F2|#333333AA",
+	        textColor  = "#66CCFF",
+	        transition = "ColorTint",
+	    },
+	    -- Remove button
+	    dynRemove = {
+	        colors     = "#260D0DE6|#401A1AF2|#1A0808E6|#333333AA",
+	        textColor  = "#FF6666",
+	        transition = "ColorTint",
+	    },
 	    hudAdd = {
 	        colors     = "#0D2B40F2|#1A5C8AF2|#0A1F2EF2|#333333AA",
 	        textColor  = "#3CCCFF",
@@ -131,8 +149,6 @@
 	    },
 	}
 
-	-- Returns a string of XML attributes for a named style.
-	-- Usage:  '<Button ' .. btnStyle("primary") .. ' ...>'
 	local function btnStyle(name)
 	    local s = BTN_STYLE[name] or BTN_STYLE.ghost
 	    return 'colors="'     .. s.colors     .. '" '
@@ -297,11 +313,11 @@
 	    refreshTemplateButton()
 	    spawnPreview()
 	    rebuildXML()
-	    rebuildHUD()   -- keep HUD in sync when history changes
+	    rebuildHUD()
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  HISTORY BUTTON HANDLERS  (Object UI — unchanged)
+--  HISTORY BUTTON HANDLERS
 -- ──────────────────────────────────────────────────────────────
 
 	function btn_history_1(_, _) activateHistoryEntry(1) end
@@ -315,10 +331,6 @@
 
 -- ──────────────────────────────────────────────────────────────
 --  HUD HISTORY HANDLERS
---  XML Global UI callbacks receive a Player object, not a colour
---  string. These shims extract player.color and call the real
---  history activator. Named distinctly so they don't conflict
---  with the Object UI handlers above.
 -- ──────────────────────────────────────────────────────────────
 
 	function hud_history_1(player, _, _) activateHistoryEntry(1) end
@@ -332,16 +344,12 @@
 
 -- ──────────────────────────────────────────────────────────────
 --  HUD ACTION HANDLERS
---  Shims for Add Token and Remove Tokens.
---  player.color extracts the colour string the real functions expect.
 -- ──────────────────────────────────────────────────────────────
 
-	-- Add Token via HUD
 	function hud_addToken(player, _, _)
 	    btn_toggleToken(nil, player.color)
 	end
 
-	-- Remove all tokens from selected model via HUD
 	function hud_removeTokens(player, _, _)
 	    local playerColor = player.color
 	    local sel = Player[playerColor].getSelectedObjects()
@@ -361,13 +369,12 @@
 	        hoverEntries[tGUID] = nil
 	    end
 	    saveState()
-	    clearAllDynamicButtons()
+	    hideDynamicPanel()
 	    local targetObj  = getObjectFromGUID(targetGUID)
 	    local targetName = targetObj and targetObj.getName() or "Unknown"
 	    printToColor("Removed all tokens from " .. targetName, playerColor, { 1, 0.5, 0.5 })
 	end
 
-	-- Toggle HUD visibility
 	function hud_toggleVisible(player, _, _)
 	    hudVisible = not hudVisible
 	    if hudVisible then
@@ -379,20 +386,19 @@
 	    end
 	end
 
-	-- Toggle HUD on/off entirely (called from settings panel)
 	function btn_toggleHUD(_, _)
-		hudEnabled = not hudEnabled
-		if hudEnabled then
-			hudVisible = true
-			UI.show("tc_hud_main")
-		else
-			UI.hide("tc_hud_main")
-		end
-		rebuildXML()
+	    hudEnabled = not hudEnabled
+	    if hudEnabled then
+	        hudVisible = true
+	        UI.show("tc_hud_main")
+	    else
+	        UI.hide("tc_hud_main")
+	    end
+	    rebuildXML()
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  SETTINGS BUTTON (Object XML)
+--  SETTINGS BUTTON
 -- ──────────────────────────────────────────────────────────────
 
 	function btn_toggleSettings(_, _)
@@ -402,16 +408,83 @@
 	    else
 	        self.UI.hide("settingsPanel")
 	    end
-	    
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  OBJECT XML UI  (unchanged — on the TC object surface)
+--  DYNAMIC PANEL — show/hide helpers
+-- ──────────────────────────────────────────────────────────────
+
+	-- Hides the dynamic panel and resets selection state.
+	-- Replaces clearAllDynamicButtons().
+	function hideDynamicPanel()
+	    if not dynPanelVisible then return end
+	    self.UI.hide("dynamicPanel")
+	    dynPanelVisible    = false
+	    lastSelectedGUID   = nil
+	    selectedTokenGUID  = nil
+	end
+
+	-- Shows the dynamic panel populated for the given target model.
+	-- Replaces showDynamicButtons().
+	function showDynamicPanel(targetGUID, tokenCount)
+	    -- Guard: skip rebuild if same target and count hasn't changed
+	    if lastSelectedGUID == targetGUID then return end
+
+	    local tokens = findTokensForTarget(targetGUID)
+	    local count  = math.min(tokenCount, MAX_TOKENS)
+
+	    -- Spread buttons: only visible when 2+ tokens
+	    local showSpread = tokenCount >= 2
+	    self.UI.setAttribute("dynSpreadRow", "active", showSpread and "True" or "False")
+
+	    -- Populate token slots
+	    for i = 1, MAX_TOKENS do
+	        local slotActive = (i <= count)
+	        local tGUID      = tokens[i]
+	        local slotId     = "dynSlot_" .. i
+	        local removeId   = "dynRemove_" .. i
+
+	        self.UI.setAttribute(slotId,   "active", slotActive and "True" or "False")
+	        self.UI.setAttribute(removeId, "active", slotActive and "True" or "False")
+
+	        if slotActive and tGUID then
+	            local name       = getTokenName(tGUID)
+	            local isSelected = (selectedTokenGUID == tGUID)
+	            self.UI.setAttribute(slotId, "text",   shortName(name, 12, 1))
+	            self.UI.setAttribute(slotId, "colors", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
+	            self.UI.setAttribute(slotId, "textColor", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].textColor)
+	            -- Store GUID for handlers via self.setVar (same pattern as before)
+	            self.setVar("removeSlot_" .. i, tGUID)
+	            self.setVar("selectSlot_" .. i, tGUID)
+	        end
+	    end
+
+	    self.UI.show("dynamicPanel")
+	    dynPanelVisible  = true
+	    lastSelectedGUID = targetGUID
+	end
+
+	-- Refreshes slot highlight states after a select/deselect.
+	-- Replaces the self.editButton loop in handleSelectToken.
+	local function refreshSlotHighlights()
+	    local tokens = lastSelectedGUID and findTokensForTarget(lastSelectedGUID) or {}
+	    for i, tGUID in ipairs(tokens) do
+	        if i > MAX_TOKENS then break end
+	        local isSelected = (selectedTokenGUID == tGUID)
+	        local slotId     = "dynSlot_" .. i
+	        self.UI.setAttribute(slotId, "colors",    BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
+	        self.UI.setAttribute(slotId, "textColor", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].textColor)
+	    end
+	end
+
+-- ──────────────────────────────────────────────────────────────
+--  OBJECT XML UI
 -- ──────────────────────────────────────────────────────────────
 
 	rebuildXML = function()
 	    local lines = {}
 
+	    -- ── Preview indicator ──
 	    local previewImage  = ""
 	    local previewText   = ""
 	    local previewActive = "False"
@@ -447,6 +520,7 @@
 	    end
 	    table.insert(lines, '</Panel>')
 
+	    -- ── History grid ──
 	    table.insert(lines, '<Panel id="historyPanel"')
 	    table.insert(lines,   ' position="0 -400 -25"')
 	    table.insert(lines,   ' rotation="0 0 0"')
@@ -476,7 +550,7 @@
 	    table.insert(lines, '  </GridLayout>')
 	    table.insert(lines, '</Panel>')
 
-		-- ── Settings menu ──
+	    -- ── Settings button ──
 	    table.insert(lines, '<Button id="settingsBtn"')
 	    table.insert(lines, '  onClick="btn_toggleSettings"')
 	    table.insert(lines, '  ' .. btnStyle("settings"))
@@ -487,6 +561,7 @@
 	    table.insert(lines, '  tooltip="Open/close settings"')
 	    table.insert(lines, '  padding="5 5 5 5">⚙</Button>')
 
+	    -- ── Settings panel ──
 	    table.insert(lines, '<Panel id="settingsPanel"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  showAnimation="SlideIn_Right"')
@@ -509,7 +584,7 @@
 	    table.insert(lines, '  </HorizontalLayout>')
 	    table.insert(lines, '</Panel>')
 
-	    -- ── Add Token button & "Set Template" ──
+	    -- ── Add Token + Set Template ──
 	    local templateLabel = "Set Template\n(none)"
 	    if templateJSON then
 	        local ok, data = pcall(JSON.decode, templateJSON)
@@ -540,6 +615,76 @@
 	    table.insert(lines, '  fontSize="26"')
 	    table.insert(lines, '  >' .. templateLabel .. '</Button>')
 
+	-- ── Dynamic panel (hidden until a model with tokens is selected) ──
+	    -- Position: to the right of the main panel. Adjust position to taste.
+	    table.insert(lines, '<Panel id="dynamicPanel"')
+	    table.insert(lines, '  active="False"')
+	    table.insert(lines, '  position="500 -200 -25"')
+	    table.insert(lines, '  rotation="0 0 0"')
+	    table.insert(lines, '  width="420" height="200"')
+	    table.insert(lines, '  color="#0A0A0AE6"')
+	    table.insert(lines, '  padding="6 6 6 6">')
+
+	     -- Modifier grid: 3 rows x 4 columns of equal square buttons
+	    -- Layout:
+	    --   [    ] [ •  ] [Flip] [ ↕  ]
+	    --   [ ⁘  ] [ ▲  ] [ ▼  ] [ ⁛  ]
+	    --   [    ] [ ·  ] [ ↻  ] [    ]
+	    -- Spread buttons (⁘ ⁛) hidden unless 2+ tokens on model.
+	    local S = ' preferredWidth="56" preferredHeight="56" '
+	    local sp = '<Panel color="#00000000"' .. S .. '/>'  -- invisible spacer
+
+	    -- Row 1: [spacer] [scaleUp] [flip] [vertical]
+	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="0 0 0 0" childAlignment="MiddleCenter" preferredHeight="60">')
+	    table.insert(lines, '    ' .. sp)
+	    table.insert(lines, '    <Button onClick="btn_scaleUp"  tooltip="Scale up\nall tokens, or just selected"  ' .. btnStyle("dynScaleUp")  .. S .. 'fontSize="32">•</Button>')
+	    table.insert(lines, '    <Button onClick="btn_flip"     tooltip="Flip token\nall tokens, or just selected" ' .. btnStyle("dynMod")      .. S .. 'fontSize="22">Flip</Button>')
+	    table.insert(lines, '    <Button onClick="btn_vertical" tooltip="Toggle vertical\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">↕</Button>')
+	    table.insert(lines, '  </HorizontalLayout>')
+
+	    -- Row 2: [spreadDown] [heightUp] [heightDown] [spreadUp]
+	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="0 0 0 0" childAlignment="MiddleCenter" preferredHeight="60">')
+	    table.insert(lines, '    <Button id="dynSpreadDown" onClick="btn_radiusDown" tooltip="Decrease spread" active="False" ' .. btnStyle("dynScaleDown") .. S .. 'fontSize="20">⁘</Button>')
+	    table.insert(lines, '    <Button onClick="btn_heightUp"   tooltip="Raise token height\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">▲</Button>')
+	    table.insert(lines, '    <Button onClick="btn_heightDown" tooltip="Lower token height\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">▼</Button>')
+	    table.insert(lines, '    <Button id="dynSpreadUp"   onClick="btn_radiusUp"   tooltip="Increase spread" active="False" ' .. btnStyle("dynScaleUp")   .. S .. 'fontSize="20">⁛</Button>')
+	    table.insert(lines, '  </HorizontalLayout>')
+
+	    -- Row 3: [spacer] [scaleDown] [rotate] [spacer]
+	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="0 0 0 0" childAlignment="MiddleCenter" preferredHeight="60">')
+	    table.insert(lines, '    ' .. sp)
+	    table.insert(lines, '    <Button onClick="btn_scaleDown" tooltip="Scale down\nall tokens, or just selected" ' .. btnStyle("dynScaleDown") .. S .. 'fontSize="32">·</Button>')
+	    table.insert(lines, '    <Button onClick="btn_rotate"    tooltip="Rotate token 180°\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">↻</Button>')
+	    table.insert(lines, '    ' .. sp)
+	    table.insert(lines, '  </HorizontalLayout>')
+
+	    -- Token slots 1–6 (each hidden by default, shown/labelled by showDynamicPanel)
+	    for i = 1, MAX_TOKENS do
+	        table.insert(lines, '  <HorizontalLayout')
+	        table.insert(lines, '    id="dynSlotRow_' .. i .. '"')
+	        table.insert(lines, '    active="False"')
+	        table.insert(lines, '    spacing="4" padding="0 0 0 0"')
+	        table.insert(lines, '    childAlignment="MiddleCenter"')
+	        table.insert(lines, '    preferredHeight="60">')
+	        table.insert(lines, '    <Button id="dynSlot_' .. i .. '"')
+	        table.insert(lines, '      onClick="btn_select_' .. i .. '"')
+	        table.insert(lines, '      ' .. btnStyle("dynSlot"))
+	        table.insert(lines, '      active="False"')
+	        table.insert(lines, '      tooltip="Click to select — modifiers apply to selected token only"')
+	        table.insert(lines, '      fontSize="20" preferredWidth="310" preferredHeight="52"')
+	        table.insert(lines, '      >–</Button>')
+	        table.insert(lines, '    <Button id="dynRemove_' .. i .. '"')
+	        table.insert(lines, '      onClick="btn_remove_' .. i .. '"')
+	        table.insert(lines, '      ' .. btnStyle("dynRemove"))
+	        table.insert(lines, '      active="False"')
+	        table.insert(lines, '      tooltip="Remove this token"')
+	        table.insert(lines, '      fontSize="24" preferredWidth="56" preferredHeight="52"')
+	        table.insert(lines, '      >✕</Button>')
+	        table.insert(lines, '  </HorizontalLayout>')
+	    end
+
+	    table.insert(lines, '</Panel>')  -- end dynamicPanel
+
 	    local xml = '<Panel width="2000" height="2000" color="#00000000">\n'
 	             .. table.concat(lines, "\n")
 	             .. '\n</Panel>'
@@ -548,18 +693,12 @@
 
 -- ──────────────────────────────────────────────────────────────
 --  GLOBAL HUD INJECTION
---  Appends TC's HUD panel to whatever Global UI the host mod
---  already has. Uses GUID-prefixed onClick routing so all
---  callbacks fire into this object's script.
 -- ──────────────────────────────────────────────────────────────
 
-	-- Builds the HUD XML string. Extracted so it can be called for
-	-- both initial injection and future re-injection.
 	local function buildHUDXml(guid)
 	    local lines = {}
-	    local g = guid  -- GUID prefix for onClick routing
+	    local g = guid
 
-	    -- ── Main HUD panel (bottom centre) ──
 	    table.insert(lines, '<Panel id="tc_hud_main"')
 	    table.insert(lines, '  active="' .. (hudVisible and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
@@ -568,7 +707,6 @@
 	    table.insert(lines, '  color="#000000CC"')
 	    table.insert(lines, '  padding="6 6 6 6">')
 
-	    -- Row 1: history grid (8 slots)
 	    table.insert(lines, '  <GridLayout id="tc_hud_grid"')
 	    table.insert(lines, '    rectAlignment="UpperCenter"')
 	    table.insert(lines, '    cellSize="54 54" spacing="3 3"')
@@ -581,7 +719,6 @@
 	        local isActive = entry and (templateJSON == entry.json)
 	        local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 	        local fnName   = g .. "/hud_history_" .. i
-
 	        table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
 	        table.insert(lines, '      onClick="' .. fnName .. '"')
 	        table.insert(lines, '      ' .. btnStyle(style))
@@ -600,38 +737,32 @@
 
 	    table.insert(lines, '  </GridLayout>')
 
-	    -- Row 2: action buttons
 	    table.insert(lines, '  <HorizontalLayout')
 	    table.insert(lines, '    rectAlignment="LowerCenter"')
 	    table.insert(lines, '    spacing="6" padding="0 0 0 0"')
 	    table.insert(lines, '    childAlignment="MiddleCenter"')
 	    table.insert(lines, '    width="488" height="60">')
-
 	    table.insert(lines, '    <Button id="tc_hud_add"')
 	    table.insert(lines, '      onClick="' .. g .. '/hud_addToken"')
 	    table.insert(lines, '      ' .. btnStyle("hudAdd"))
 	    table.insert(lines, '      fontSize="18" preferredWidth="220" preferredHeight="52"')
 	    table.insert(lines, '      tooltip="Add token to selected model"')
 	    table.insert(lines, '      >＋ Add Token</Button>')
-
 	    table.insert(lines, '    <Button id="tc_hud_remove"')
 	    table.insert(lines, '      onClick="' .. g .. '/hud_removeTokens"')
 	    table.insert(lines, '      ' .. btnStyle("hudRemove"))
 	    table.insert(lines, '      fontSize="18" preferredWidth="220" preferredHeight="52"')
 	    table.insert(lines, '      tooltip="Remove all tokens from selected model"')
 	    table.insert(lines, '      >✕ Remove</Button>')
-
 	    table.insert(lines, '    <Button id="tc_hud_hide"')
 	    table.insert(lines, '      onClick="' .. g .. '/hud_toggleVisible"')
 	    table.insert(lines, '      ' .. btnStyle("hudHide"))
 	    table.insert(lines, '      fontSize="14" preferredWidth="40" preferredHeight="52"')
 	    table.insert(lines, '      tooltip="Hide HUD"')
 	    table.insert(lines, '      >_</Button>')
-
 	    table.insert(lines, '  </HorizontalLayout>')
 	    table.insert(lines, '</Panel>')
 
-	    -- ── Restore button (shown when HUD is hidden) ──
 	    table.insert(lines, '<Button id="tc_hud_restore"')
 	    table.insert(lines, '  active="False"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
@@ -646,36 +777,18 @@
 	    return table.concat(lines, "\n")
 	end
 
-	-- Assigned to forward-declared local above.
-	-- Appends (or replaces) the HUD in Global UI.
-	-- Debounced: rapid successive calls coalesce into one rebuild
-	-- to avoid the stale-XML race when getXml/setXml are called quickly.
 	rebuildHUD = function()
-		if hudRebuildPending then return end
-		hudRebuildPending = true
-		Wait.time(function()
-			hudRebuildPending = false
-			local guid   = self.getGUID()
-			local hudXml = buildHUDXml(guid)
-			local existing = UI.getXml() or ""
-			existing = existing:gsub("%s+$", "")
-			UI.setXml(existing .. "\n" .. hudXml)
-		end, 0.1)
+	    if hudRebuildPending then return end
+	    hudRebuildPending = true
+	    Wait.time(function()
+	        hudRebuildPending = false
+	        local guid     = self.getGUID()
+	        local hudXml   = buildHUDXml(guid)
+	        local existing = UI.getXml() or ""
+	        existing = existing:gsub("%s+$", "")
+	        UI.setXml(existing .. "\n" .. hudXml)
+	    end, 0.1)
 	end
-
--- ──────────────────────────────────────────────────────────────
---  DYNAMIC BUTTON LAYOUT CONSTANTS
--- ──────────────────────────────────────────────────────────────
-
-	local DYN_START       = 0   -- dynamic buttons now start at index 0 (no permanent Lua buttons)
-	local SCALE_BTN_X      =  4.4
-	local FLIP_BTN_X       =  5.2
-	local ROTATE_BTN_X     =  5.2
-	local RADIUS_BTN_Z     =  2.3
-	local TOKEN_NAME_BTN_X =  4.5
-	local REMOVE_BTN_X     =  7
-	local REMOVE_BTN_Z_TOP =  4.3
-	local REMOVE_BTN_STEP  =  0.8
 
 -- ──────────────────────────────────────────────────────────────
 --  BUTTON LABEL HELPERS
@@ -693,150 +806,11 @@
 	            label = "Set Template\n[custom]"
 	        end
 	    end
-	    
+	    self.UI.setAttribute("setTemplateBtn", "text", label)
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  DYNAMIC BUTTONS
--- ──────────────────────────────────────────────────────────────
-
-	local dynamicButtonCount = 0
-
-	local function clearAllDynamicButtons()
-	    if dynamicButtonCount == 0 then return end
-	    for i = DYN_START + dynamicButtonCount - 1, DYN_START, -1 do
-	        self.removeButton(i)
-	    end
-	    dynamicButtonCount       = 0
-	    dynamicState.removeCount = 0
-	    dynamicState.scaleShown  = false
-	    dynamicState.radiusShown = false
-	    lastSelectedGUID         = nil
-	    selectedTokenGUID        = nil
-	end
-
-	local function showDynamicButtons(targetGUID, tokenCount)
-	    local expectedCount = 7
-	    if tokenCount >= 2 then expectedCount = expectedCount + 2 end
-	    expectedCount = expectedCount + math.min(tokenCount, MAX_TOKENS) * 2
-
-	    if lastSelectedGUID == targetGUID and dynamicButtonCount == expectedCount then return end
-
-	    clearAllDynamicButtons()
-	    tokenNameBtnIndices = {}
-
-	    self.createButton({
-			label = "▲", tooltip = "Raise token height",
-			click_function = "btn_heightUp", function_owner = self,
-			position = { SCALE_BTN_X, 0.2, 2.3 }, width = 400, height = 400, font_size = 250,
-			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
-		})
-		dynamicButtonCount = dynamicButtonCount + 1
-
-		self.createButton({
-			label = "▼", tooltip = "Lower token height",
-			click_function = "btn_heightDown", function_owner = self,
-			position = { FLIP_BTN_X, 0.2, 2.3 }, width = 400, height = 400, font_size = 250,
-			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
-		})
-		dynamicButtonCount = dynamicButtonCount + 1
-
-	    self.createButton({
-	        label = "•", tooltip = "Scale up\nall tokens, or just selected",
-	        click_function = "btn_scaleUp", function_owner = self,
-	        position = { SCALE_BTN_X, 0.2, 1.5 }, width = 400, height = 400, font_size = 400,
-	        color = { 0, 0, 0, 0.9 }, font_color = { 0.5, 1.0, 0.5 },
-	    })
-	    dynamicButtonCount = dynamicButtonCount + 1
-
-	    self.createButton({
-	        label = "·", tooltip = "Scale down\nall tokens, or just selected",
-	        click_function = "btn_scaleDown", function_owner = self,
-	        position = { SCALE_BTN_X, 0.2, 3.1 }, width = 400, height = 400, font_size = 400,
-	        color = { 0, 0, 0, 0.9 }, font_color = { 1.0, 0.5, 0.5 },
-	    })
-	    dynamicButtonCount      = dynamicButtonCount + 1
-	    dynamicState.scaleShown = true
-
-	    self.createButton({
-	        label = "Flip", tooltip = "Flip token\nall tokens, or just selected",
-	        click_function = "btn_flip", function_owner = self,
-	        position = { FLIP_BTN_X, 0.2, 1.5 }, width = 400, height = 400, font_size = 180,
-	        color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
-	    })
-	    dynamicButtonCount = dynamicButtonCount + 1
-
-	    self.createButton({
-	        label = "↻", tooltip = "Rotate token 180°\nall tokens, or just selected",
-	        click_function = "btn_rotate", function_owner = self,
-	        position = { ROTATE_BTN_X, 0.2, 3.1 }, width = 400, height = 400, font_size = 180,
-	        color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
-	    })
-	    dynamicButtonCount = dynamicButtonCount + 1
-
-		self.createButton({
-			label = "↕", tooltip = "Toggle vertical\nall tokens, or just selected",
-			click_function = "btn_vertical", function_owner = self,
-			position = { 6, 0.2, 1.5 }, width = 400, height = 400, font_size = 180,
-			color = { 0, 0, 0, 0.9 }, font_color = { 0.8, 0.6, 1.0 },
-		})
-		dynamicButtonCount = dynamicButtonCount + 1
-
-	    if tokenCount >= 2 then
-	        self.createButton({
-	            label = "⁛", tooltip = "Increase spread\ni.e. distance between tokens",
-	            click_function = "btn_radiusUp", function_owner = self,
-	            position = { 6, 0.2, RADIUS_BTN_Z }, width = 400, height = 400, font_size = 300,
-	            color = { 0, 0, 0, 0.9 }, font_color = { 0.5, 1.0, 0.5 },
-	        })
-	        dynamicButtonCount = dynamicButtonCount + 1
-
-	        self.createButton({
-	            label = "⁘", tooltip = "Decrease spread\ni.e. distance between tokens",
-	            click_function = "btn_radiusDown", function_owner = self,
-	            position = { 3.6, 0.2, RADIUS_BTN_Z }, width = 400, height = 400, font_size = 200,
-	            color = { 0, 0, 0, 0.9 }, font_color = { 1.0, 0.5, 0.5 },
-	        })
-	        dynamicButtonCount       = dynamicButtonCount + 1
-	        dynamicState.radiusShown = true
-	    end
-
-	    local count  = math.min(tokenCount, MAX_TOKENS)
-	    local tokens = findTokensForTarget(targetGUID)
-	    for i = 1, count do
-	        local tGUID      = tokens[i]
-	        local name       = getTokenName(tGUID)
-	        local zPos       = REMOVE_BTN_Z_TOP + (i - 1) * REMOVE_BTN_STEP
-	        local isSelected = (selectedTokenGUID == tGUID)
-
-	        self.setVar("removeSlot_" .. i, tGUID)
-	        self.setVar("selectSlot_" .. i, tGUID)
-
-	        self.createButton({
-	            label = name,
-	            tooltip = isSelected and "Click to deselect" or "Click to select\n\nModifiers (above) apply to this token only",
-	            click_function = "btn_select_" .. i, function_owner = self,
-	            position = { TOKEN_NAME_BTN_X, 0.2, zPos }, width = 1800, height = 400, font_size = 150,
-	            color      = isSelected and { 0.1, 0.2, 0.4, 0.95 } or { 0.05, 0.05, 0.15, 0.95 },
-	            font_color = isSelected and { 0.4, 0.8, 1.0 }        or { 0.6, 0.6, 0.8 },
-	        })
-	        tokenNameBtnIndices[i] = DYN_START + dynamicButtonCount
-	        dynamicButtonCount = dynamicButtonCount + 1
-
-	        self.createButton({
-	            label = "✕", tooltip = "Remove: " .. name,
-	            click_function = "btn_remove_" .. i, function_owner = self,
-	            position = { REMOVE_BTN_X, 0.2, zPos }, width = 400, height = 400, font_size = 250,
-	            color = { 0.15, 0.05, 0.05, 0.95 }, font_color = { 1.0, 0.4, 0.4 },
-	        })
-	        dynamicButtonCount = dynamicButtonCount + 1
-	    end
-	    dynamicState.removeCount = count
-	    lastSelectedGUID         = targetGUID
-	end
-
--- ──────────────────────────────────────────────────────────────
---  REMOVE HANDLERS
+--  REMOVE HANDLERS  (unchanged)
 -- ──────────────────────────────────────────────────────────────
 
 	local function handleRemove(slotIndex, playerColor)
@@ -850,9 +824,11 @@
 	    saveState()
 	    local newTokens = prevTarget and findTokensForTarget(prevTarget) or {}
 	    if #newTokens > 0 then
-	        showDynamicButtons(prevTarget, #newTokens)
+	        -- Force a refresh by resetting lastSelectedGUID so showDynamicPanel rebuilds
+	        lastSelectedGUID = nil
+	        showDynamicPanel(prevTarget, #newTokens)
 	    else
-	        clearAllDynamicButtons()
+	        hideDynamicPanel()
 	    end
 	    local targetObj  = prevTarget and getObjectFromGUID(prevTarget)
 	    local targetName = targetObj and targetObj.getName() or "Unknown"
@@ -879,18 +855,7 @@
 	    else
 	        selectedTokenGUID = tGUID
 	    end
-	    local tokens = lastSelectedGUID and findTokensForTarget(lastSelectedGUID) or {}
-	    for i, tG in ipairs(tokens) do
-	        local idx = tokenNameBtnIndices[i]
-	        if idx then
-	            local isSelected = (selectedTokenGUID == tG)
-	            self.editButton({
-	                index      = idx,
-	                color      = isSelected and { 0.1, 0.2, 0.4, 0.95 } or { 0.05, 0.05, 0.15, 0.95 },
-	                font_color = isSelected and { 0.4, 0.8, 1.0 }        or { 0.6, 0.6, 0.8 },
-	            })
-	        end
-	    end
+	    refreshSlotHighlights()
 	end
 
 	function btn_select_1(_, _) handleSelectToken(1) end
@@ -925,12 +890,12 @@
 	            local guid   = sel[1].getGUID()
 	            local tokens = findTokensForTarget(guid)
 	            if #tokens > 0 then
-	                showDynamicButtons(guid, #tokens)
+	                showDynamicPanel(guid, #tokens)
 	            else
-	                if lastSelectedGUID ~= nil then clearAllDynamicButtons() end
+	                if dynPanelVisible then hideDynamicPanel() end
 	            end
 	        else
-	            if dynamicButtonCount > 0 then clearAllDynamicButtons() end
+	            if dynPanelVisible then hideDynamicPanel() end
 	        end
 	        Wait.time(poll, 0.3)
 	    end
@@ -1041,7 +1006,7 @@
 	    refreshTemplateButton()
 	    spawnPreview()
 	    rebuildXML()
-	    rebuildHUD()   -- keep HUD history grid in sync
+	    rebuildHUD()
 
 	    collisionCooldown = true
 	    Wait.time(function() collisionCooldown = false end, 2.0)
@@ -1071,7 +1036,7 @@
 	    saveState()
 	    refreshTemplateButton()
 	    rebuildXML()
-	    rebuildHUD()   -- clear HUD history grid too
+	    rebuildHUD()
 	    printToAll("Token history cleared.", { 1, 0.8, 0.3 })
 	end
 
@@ -1082,8 +1047,6 @@
 	function onLoad()
 	    loadState()
 
-	    -- Build Object XML first, then inject HUD into Global UI.
-	    -- Both wait for their respective UI loading flags.
 	    Wait.condition(function()
 	        rebuildXML()
 	    end, function() return not self.UI.loading end)
@@ -1102,7 +1065,7 @@
 -- ──────────────────────────────────────────────────────────────
 
 	function btn_setTemplate(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then
 	        printToColor("Select an object first to use as the token template.", playerColor, { 1, 1, 0 })
@@ -1143,7 +1106,7 @@
 	    refreshTemplateButton()
 	    spawnPreview()
 	    rebuildXML()
-	    rebuildHUD()   -- keep HUD in sync
+	    rebuildHUD()
 	    printToColor("Template set from: " .. name, playerColor, { 0.3, 1, 0.5 })
 	end
 
@@ -1152,32 +1115,34 @@
 -- ──────────────────────────────────────────────────────────────
 
 	local function applyHeightToTokens(targetGUID, delta, playerColor)
-		local tokens = findTokensForTarget(targetGUID)
-		if #tokens == 0 then printToColor("No tokens on selected model.", playerColor, { 1, 1, 0 }) return end
-		local targets = {}
-		if selectedTokenGUID and hoverEntries[selectedTokenGUID]
-			and hoverEntries[selectedTokenGUID].targetGUID == targetGUID then
-			targets = { selectedTokenGUID }
-		else
-			targets = tokens
-		end
-		for _, tGUID in ipairs(targets) do
-			local entry = hoverEntries[tGUID]
-			if entry then entry.offset = entry.offset + delta end
-		end
-		saveState()
+	    local tokens = findTokensForTarget(targetGUID)
+	    if #tokens == 0 then printToColor("No tokens on selected model.", playerColor, { 1, 1, 0 }) return end
+	    local targets = {}
+	    if selectedTokenGUID and hoverEntries[selectedTokenGUID]
+	        and hoverEntries[selectedTokenGUID].targetGUID == targetGUID then
+	        targets = { selectedTokenGUID }
+	    else
+	        targets = tokens
+	    end
+	    for _, tGUID in ipairs(targets) do
+	        local entry = hoverEntries[tGUID]
+	        if entry then entry.offset = entry.offset + delta end
+	    end
+	    saveState()
 	end
 
-	function btn_heightUp(_, playerColor)
-		local sel = Player[playerColor].getSelectedObjects()
-		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
-		applyHeightToTokens(sel[1].getGUID(), HEIGHT_STEP, playerColor)
+	function btn_heightUp(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    local sel = Player[playerColor].getSelectedObjects()
+	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+	    applyHeightToTokens(sel[1].getGUID(), HEIGHT_STEP, playerColor)
 	end
 
-	function btn_heightDown(_, playerColor)
-		local sel = Player[playerColor].getSelectedObjects()
-		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
-		applyHeightToTokens(sel[1].getGUID(), -HEIGHT_STEP, playerColor)
+	function btn_heightDown(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    local sel = Player[playerColor].getSelectedObjects()
+	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+	    applyHeightToTokens(sel[1].getGUID(), -HEIGHT_STEP, playerColor)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1210,13 +1175,15 @@
 	    saveState()
 	end
 
-	function btn_scaleUp(_, playerColor)
+	function btn_scaleUp(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyScaleToTokens(sel[1].getGUID(), SCALE_STEP, playerColor)
 	end
 
-	function btn_scaleDown(_, playerColor)
+	function btn_scaleDown(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyScaleToTokens(sel[1].getGUID(), -SCALE_STEP, playerColor)
@@ -1247,7 +1214,8 @@
 	    saveState()
 	end
 
-	function btn_flip(_, playerColor)
+	function btn_flip(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
@@ -1258,7 +1226,8 @@
 	    end)
 	end
 
-	function btn_rotate(_, playerColor)
+	function btn_rotate(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
@@ -1269,15 +1238,16 @@
 	    end)
 	end
 
-	function btn_vertical(_, playerColor)
-		local sel = Player[playerColor].getSelectedObjects()
-		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
-		applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
-			entry.vertical = not entry.vertical
-			local rot = token.getRotation()
-			local newX = entry.vertical and 90 or 0
-			token.setRotation({ newX, rot.y, rot.z })
-		end)
+	function btn_vertical(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    local sel = Player[playerColor].getSelectedObjects()
+	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+	    applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
+	        entry.vertical = not entry.vertical
+	        local rot = token.getRotation()
+	        local newX = entry.vertical and 90 or 0
+	        token.setRotation({ newX, rot.y, rot.z })
+	    end)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1292,13 +1262,15 @@
 	    saveState()
 	end
 
-	function btn_radiusUp(_, playerColor)
+	function btn_radiusUp(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyRadiusToModel(sel[1].getGUID(), RADIUS_STEP, playerColor)
 	end
 
-	function btn_radiusDown(_, playerColor)
+	function btn_radiusDown(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyRadiusToModel(sel[1].getGUID(), -RADIUS_STEP, playerColor)
@@ -1351,24 +1323,24 @@
 -- ──────────────────────────────────────────────────────────────
 
 	function btn_toggleToken(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    if not templateJSON then
 	        printToColor("No template set — use 'Set Template' first.", playerColor, { 1, 1, 0 })
 	        return
 	    end
 	    local sel = Player[playerColor].getSelectedObjects()
-		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
-		local target     = sel[1]
-		local targetGUID = target.getGUID()
-		if target == self then
-			printToColor("Cannot attach a token to the controller.", playerColor, { 1, 0.3, 0.3 }) return
+	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+	    local target     = sel[1]
+	    local targetGUID = target.getGUID()
+	    if target == self then
+	        printToColor("Cannot attach a token to the controller.", playerColor, { 1, 0.3, 0.3 }) return
 	    end
 	    if previewGUID and targetGUID == previewGUID then
 	        printToColor("Cannot attach a token to the template preview.", playerColor, { 1, 0.3, 0.3 }) return
 	    end
 	    local existing = findTokensForTarget(targetGUID)
-		if #existing >= MAX_TOKENS then
-			printToColor("Maximum tokens (" .. MAX_TOKENS .. ") already attached.", playerColor, { 1, 0.5, 0 }) return
+	    if #existing >= MAX_TOKENS then
+	        printToColor("Maximum tokens (" .. MAX_TOKENS .. ") already attached.", playerColor, { 1, 0.5, 0 }) return
 	    end
 	    local offset = FLOAT_HEIGHT_LOW
 	    local scale  = templateScale and { x=templateScale.x, y=templateScale.y, z=templateScale.z } or nil
@@ -1546,13 +1518,13 @@
 	                    newToken.setLock(true)
 	                    local newGUID = newToken.getGUID()
 	                    hoverEntries[newGUID] = {
-						    targetGUID = r.entry.targetGUID,
-						    offset     = r.entry.offset,
-						    scale      = r.entry.scale,
-						    flipped    = r.entry.flipped,
-						    rotated    = r.entry.rotated,
-						    vertical   = r.entry.vertical or false,
-					    }
+	                        targetGUID = r.entry.targetGUID,
+	                        offset     = r.entry.offset,
+	                        scale      = r.entry.scale,
+	                        flipped    = r.entry.flipped,
+	                        rotated    = r.entry.rotated,
+	                        vertical   = r.entry.vertical or false,
+	                    }
 	                    saveState()
 	                end
 	            end)
