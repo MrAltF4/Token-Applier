@@ -103,13 +103,13 @@
 	        transition = "ColorTint",
 	    },
 	    -- Dynamic panel scale up
-	    dynScaleUp = {
+	    dynGreenBtn = {
 	        colors     = "#0D0D0DE6|#1A2B1AE6|#080808E6|#333333AA",
 	        textColor  = "#80FF80",
 	        transition = "ColorTint",
 	    },
 	    -- Dynamic panel scale down
-	    dynScaleDown = {
+	    dynRedBtn = {
 	        colors     = "#0D0D0DE6|#2B1A1AE6|#080808E6|#333333AA",
 	        textColor  = "#FF8080",
 	        transition = "ColorTint",
@@ -660,21 +660,21 @@
 	    table.insert(lines, '  position="400 -370 -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="310" height="700"')
-	    table.insert(lines, '  color="#0A0A0AE6">')
+	    table.insert(lines, '  color="#00000000">')
 
 	    -- Row 0: [spacer] [•] [Flip] [↕]
-	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynScaleUp",   "28", "•",    1, 0))
+	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynGreenBtn",   "28", "•",    1, 0))
 	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "18", "Flip", 2, 0))
 	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "22", "↕",    3, 0))
 
 	    -- Row 1: [⁘] [▲] [▼] [⁛]
-	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynScaleDown", "18", "⁘",    0, 1, 'active="False"'))
+	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynRedBtn", "18", "⁘",    0, 1, 'active="False"'))
 	    table.insert(lines, mbtn(nil,             "btn_heightUp",  "Raise token height\nall tokens, or just selected","dynMod",    "22", "▲",    1, 1))
 	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "22", "▼",    2, 1))
-	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynScaleUp",  "18", "⁛",    3, 1, 'active="False"'))
+	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynGreenBtn",  "18", "⁛",    3, 1, 'active="False"'))
 
 	    -- Row 2: [spacer] [·] [↻] [spacer]
-	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynScaleDown", "28", "·",    1, 2))
+	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynRedBtn", "28", "·",    1, 2))
 	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "22", "↻",    2, 2))
 
 	    -- Token slots — below modifier grid with extra gap
