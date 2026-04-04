@@ -441,7 +441,7 @@
 	    table.insert(lines, '<Panel id="previewPanel"')
 	    table.insert(lines,   ' active="' .. previewActive .. '"')
 	    table.insert(lines,   ' position="0 0 -100"')
-	    table.insert(lines,   ' rotation="0 0 180"')
+	    table.insert(lines,   ' rotation="0 0 0"')
 	    table.insert(lines,   ' width="300" height="300"')
 	    table.insert(lines,   ' color="#00000000">')
 	    if previewImage ~= "" then
@@ -454,8 +454,8 @@
 	    table.insert(lines, '</Panel>')
 
 	    table.insert(lines, '<Panel id="historyPanel"')
-	    table.insert(lines,   ' position="0 400 -25"')
-	    table.insert(lines,   ' rotation="0 0 180"')
+	    table.insert(lines,   ' position="0 -400 -25"')
+	    table.insert(lines,   ' rotation="0 0 0"')
 	    table.insert(lines,   ' width="448" height="228"')
 	    table.insert(lines,   ' color="#00000000">')
 	    table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
@@ -482,10 +482,11 @@
 	    table.insert(lines, '  </GridLayout>')
 	    table.insert(lines, '</Panel>')
 
+		-- ── Settings menu ──
 	    table.insert(lines, '<Button id="settingsBtn"')
 	    table.insert(lines, '  onClick="btn_toggleSettings"')
 	    table.insert(lines, '  ' .. btnStyle("settings"))
-	    table.insert(lines, '  position="0 540 -25"')
+	    table.insert(lines, '  position="0 -550 -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
 	    table.insert(lines, '  fontSize="40"')
@@ -496,9 +497,9 @@
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  showAnimation="SlideIn_Right"')
 	    table.insert(lines, '  hideAnimation="SlideIn_Right"')
-	    table.insert(lines, '  animationDuration="0.3"')
-	    table.insert(lines, '  position="480 540 -25"')
-	    table.insert(lines, '  rotation="0 0 180"')
+	    table.insert(lines, '  animationDuration="0.4"')
+	    table.insert(lines, '  position="-460 -550 -25"')
+	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
 	    table.insert(lines, '  color="#484716F2">')
 	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="8 8 8 8" childAlignment="MiddleCenter">')
@@ -514,7 +515,7 @@
 	    table.insert(lines, '  </HorizontalLayout>')
 	    table.insert(lines, '</Panel>')
 
-	    -- ── Add Token button ──
+	    -- ── Add Token button & "Set Template" ──
 	    local templateLabel = "Set Template\n(none)"
 	    if templateJSON then
 	        local ok, data = pcall(JSON.decode, templateJSON)
@@ -529,8 +530,8 @@
 	    table.insert(lines, '  onClick="btn_toggleToken"')
 	    table.insert(lines, '  ' .. btnStyle("primary"))
 	    table.insert(lines, '  tooltip="Select a model, then click to add token"')
-	    table.insert(lines, '  position="0 -100 -25"')
-	    table.insert(lines, '  rotation="0 0 180"')
+	    table.insert(lines, '  position="0 -150 -25"')
+	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="200"')
 	    table.insert(lines, '  fontSize="60"')
 	    table.insert(lines, '  >Add Token</Button>')
@@ -539,8 +540,8 @@
 	    table.insert(lines, '  onClick="btn_setTemplate"')
 	    table.insert(lines, '  ' .. btnStyle("template"))
 	    table.insert(lines, '  tooltip="Drop any object onto TC, or select an object then click to capture it as the token template"')
-	    table.insert(lines, '  position="0 -330 -25"')
-	    table.insert(lines, '  rotation="0 0 180"')
+	    table.insert(lines, '  position="0 -650 -25"')
+	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="100"')
 	    table.insert(lines, '  fontSize="26"')
 	    table.insert(lines, '  >' .. templateLabel .. '</Button>')
@@ -1109,7 +1110,8 @@
 --  TEMPLATE CAPTURE
 -- ──────────────────────────────────────────────────────────────
 
-	function btn_setTemplate(_, playerColor)
+	function btn_setTemplate(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then
 	        printToColor("Select an object first to use as the token template.", playerColor, { 1, 1, 0 })
@@ -1357,7 +1359,8 @@
 --  ADD TOKEN
 -- ──────────────────────────────────────────────────────────────
 
-	function btn_toggleToken(_, playerColor)
+	function btn_toggleToken(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    if not templateJSON then
 	        printToColor("No template set — use 'Set Template' first.", playerColor, { 1, 1, 0 })
 	        return
