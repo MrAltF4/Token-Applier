@@ -381,20 +381,14 @@
 
 	-- Toggle HUD on/off entirely (called from settings panel)
 	function btn_toggleHUD(_, _)
-	    hudEnabled = not hudEnabled
-	    if hudEnabled then
-	        hudVisible = true
-	        rebuildHUD()
-	        self.UI.setAttribute("hudToggleBtn", "text", "HUD: ON")
-	        self.UI.setAttribute("hudToggleBtn", "color", "#484716F2")
-	    else
-	        local existing = UI.getXml() or ""
-	        existing = existing:gsub("<!%-%-TC_HUD_START%-%->.-<!%-%-TC_HUD_END%-%->", "")
-	        existing = existing:gsub("%s+$", "")
-	        UI.setXml(existing)
-	        self.UI.setAttribute("hudToggleBtn", "text", "HUD: OFF")
-	        self.UI.setAttribute("hudToggleBtn", "color", "#2B0D0DF2")
-	    end
+		hudEnabled = not hudEnabled
+		if hudEnabled then
+			hudVisible = true
+			UI.show("tc_hud_main")
+		else
+			UI.hide("tc_hud_main")
+		end
+		rebuildXML()
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -408,7 +402,7 @@
 	    else
 	        self.UI.hide("settingsPanel")
 	    end
-	    self.UI.setAttribute("settingsBtn", "color", settingsOpen and "#1A6ECC" or "#000000")
+	    
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -657,19 +651,16 @@
 	-- Debounced: rapid successive calls coalesce into one rebuild
 	-- to avoid the stale-XML race when getXml/setXml are called quickly.
 	rebuildHUD = function()
-	    if hudRebuildPending then return end
-	    hudRebuildPending = true
-	    Wait.time(function()
-	        hudRebuildPending = false
-	        if not hudEnabled then return end
-	        local guid    = self.getGUID()
-	        local hudXml  = buildHUDXml(guid)
-	        local existing = UI.getXml() or ""
-	        existing = existing:gsub("<!%-%-TC_HUD_START%-%->.-<!%-%-TC_HUD_END%-%->", "")
-	        existing = existing:gsub("%s+$", "")
-	        local wrapped = "\n<!--TC_HUD_START-->\n" .. hudXml .. "\n<!--TC_HUD_END-->"
-	        UI.setXml(existing .. wrapped)
-	    end, 0.1)
+		if hudRebuildPending then return end
+		hudRebuildPending = true
+		Wait.time(function()
+			hudRebuildPending = false
+			local guid   = self.getGUID()
+			local hudXml = buildHUDXml(guid)
+			local existing = UI.getXml() or ""
+			existing = existing:gsub("%s+$", "")
+			UI.setXml(existing .. "\n" .. hudXml)
+		end, 0.1)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -702,7 +693,7 @@
 	            label = "Set Template\n[custom]"
 	        end
 	    end
-	    self.UI.setAttribute("setTemplateBtn", "text", label)
+	    
 	end
 
 -- ──────────────────────────────────────────────────────────────
