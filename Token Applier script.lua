@@ -435,25 +435,24 @@
 
 	    -- Spread buttons: only visible when 2+ tokens
 	    local showSpread = tokenCount >= 2
-	    self.UI.setAttribute("dynSpreadRow", "active", showSpread and "True" or "False")
+	    self.UI.setAttribute("dynSpreadUp",   "active", showSpread and "True" or "False")
+	    self.UI.setAttribute("dynSpreadDown", "active", showSpread and "True" or "False")
 
 	    -- Populate token slots
 	    for i = 1, MAX_TOKENS do
 	        local slotActive = (i <= count)
 	        local tGUID      = tokens[i]
 	        local slotId     = "dynSlot_" .. i
-	        local removeId   = "dynRemove_" .. i
 
-	        self.UI.setAttribute(slotId,   "active", slotActive and "True" or "False")
-	        self.UI.setAttribute(removeId, "active", slotActive and "True" or "False")
+	        self.UI.setAttribute(slotId,              "active", slotActive and "True" or "False")
+	        self.UI.setAttribute("dynRemove_" .. i,   "active", slotActive and "True" or "False")
 
 	        if slotActive and tGUID then
 	            local name       = getTokenName(tGUID)
 	            local isSelected = (selectedTokenGUID == tGUID)
-	            self.UI.setAttribute(slotId, "text",   shortName(name, 12, 1))
-	            self.UI.setAttribute(slotId, "colors", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
+	            self.UI.setAttribute(slotId, "text",      shortName(name, 12, 1))
+	            self.UI.setAttribute(slotId, "colors",    BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
 	            self.UI.setAttribute(slotId, "textColor", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].textColor)
-	            -- Store GUID for handlers via self.setVar (same pattern as before)
 	            self.setVar("removeSlot_" .. i, tGUID)
 	            self.setVar("selectSlot_" .. i, tGUID)
 	        end
@@ -615,72 +614,95 @@
 	    table.insert(lines, '  fontSize="26"')
 	    table.insert(lines, '  >' .. templateLabel .. '</Button>')
 
-	-- ── Dynamic panel (hidden until a model with tokens is selected) ──
-	    -- Position: to the right of the main panel. Adjust position to taste.
+	    -- ── Dynamic panel ──
+	    -- Buttons are direct children of the panel, positioned with
+	    -- rectAlignment="UpperLeft" + offsetXY. This is the only
+	    -- approach that produces fixed-size square buttons in TTS Object XML.
+	    --
+	    -- Grid layout (col, row) → offsetXY:
+	    --   col: 0=8  1=76  2=144  3=212
+	    --   row: 0=-8  1=-76  2=-144
+	    --
+	    --   [    ] [ •  ] [Flip] [ ↕  ]   row 0
+	    --   [ ⁘  ] [ ▲  ] [ ▼  ] [ ⁛  ]   row 1
+	    --   [    ] [ ·  ] [ ↻  ] [    ]   row 2
+	    --
+	    -- Slot rows start at row 3 offset (-212) with 8px extra gap
+
+	    local PAD  = 8
+	    local BW   = 60
+	    local GAP  = 8
+	    local STEP = BW + GAP  -- 68
+
+	    local function col(c) return PAD + c * STEP end
+	    local function row(r) return -(PAD + r * STEP) end
+
+	    local function mbtn(id, onClick, tooltip, style, fontSize, label, c, r, extra)
+	        local idA  = id and ('id="' .. id .. '" ') or ""
+	        local exA  = extra or ""
+	        return '  <Button ' .. idA
+	            .. 'onClick="' .. onClick .. '" '
+	            .. 'tooltip="' .. tooltip .. '" '
+	            .. btnStyle(style) .. ' '
+	            .. 'width="' .. BW .. '" height="' .. BW .. '" '
+	            .. 'fontSize="' .. fontSize .. '" '
+	            .. 'rectAlignment="UpperLeft" '
+	            .. 'offsetXY="' .. col(c) .. ' ' .. row(r) .. '" '
+	            .. exA .. '>'
+	            .. label .. '</Button>'
+	    end
+
+	    local SW = 222   -- slot name button width
+	    local RW = BW    -- remove button width
+
 	    table.insert(lines, '<Panel id="dynamicPanel"')
 	    table.insert(lines, '  active="False"')
-	    table.insert(lines, '  position="500 -200 -25"')
+	    table.insert(lines, '  position="400 -370 -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
-	    table.insert(lines, '  width="420" height="200"')
-	    table.insert(lines, '  color="#0A0A0AE6"')
-	    table.insert(lines, '  padding="6 6 6 6">')
+	    table.insert(lines, '  width="310" height="700"')
+	    table.insert(lines, '  color="#0A0A0AE6">')
 
-	     -- Modifier grid: 3 rows x 4 columns of equal square buttons
-	    -- Layout:
-	    --   [    ] [ •  ] [Flip] [ ↕  ]
-	    --   [ ⁘  ] [ ▲  ] [ ▼  ] [ ⁛  ]
-	    --   [    ] [ ·  ] [ ↻  ] [    ]
-	    -- Spread buttons (⁘ ⁛) hidden unless 2+ tokens on model.
-	    local S = ' preferredWidth="56" preferredHeight="56" '
-	    local sp = '<Panel color="#00000000"' .. S .. '/>'  -- invisible spacer
+	    -- Row 0: [spacer] [•] [Flip] [↕]
+	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynScaleUp",   "28", "•",    1, 0))
+	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "18", "Flip", 2, 0))
+	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "22", "↕",    3, 0))
 
-	    -- Row 1: [spacer] [scaleUp] [flip] [vertical]
-	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="0 0 0 0" childAlignment="MiddleCenter" preferredHeight="60">')
-	    table.insert(lines, '    ' .. sp)
-	    table.insert(lines, '    <Button onClick="btn_scaleUp"  tooltip="Scale up\nall tokens, or just selected"  ' .. btnStyle("dynScaleUp")  .. S .. 'fontSize="32">•</Button>')
-	    table.insert(lines, '    <Button onClick="btn_flip"     tooltip="Flip token\nall tokens, or just selected" ' .. btnStyle("dynMod")      .. S .. 'fontSize="22">Flip</Button>')
-	    table.insert(lines, '    <Button onClick="btn_vertical" tooltip="Toggle vertical\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">↕</Button>')
-	    table.insert(lines, '  </HorizontalLayout>')
+	    -- Row 1: [⁘] [▲] [▼] [⁛]
+	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynScaleDown", "18", "⁘",    0, 1, 'active="False"'))
+	    table.insert(lines, mbtn(nil,             "btn_heightUp",  "Raise token height\nall tokens, or just selected","dynMod",    "22", "▲",    1, 1))
+	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "22", "▼",    2, 1))
+	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynScaleUp",  "18", "⁛",    3, 1, 'active="False"'))
 
-	    -- Row 2: [spreadDown] [heightUp] [heightDown] [spreadUp]
-	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="0 0 0 0" childAlignment="MiddleCenter" preferredHeight="60">')
-	    table.insert(lines, '    <Button id="dynSpreadDown" onClick="btn_radiusDown" tooltip="Decrease spread" active="False" ' .. btnStyle("dynScaleDown") .. S .. 'fontSize="20">⁘</Button>')
-	    table.insert(lines, '    <Button onClick="btn_heightUp"   tooltip="Raise token height\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">▲</Button>')
-	    table.insert(lines, '    <Button onClick="btn_heightDown" tooltip="Lower token height\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">▼</Button>')
-	    table.insert(lines, '    <Button id="dynSpreadUp"   onClick="btn_radiusUp"   tooltip="Increase spread" active="False" ' .. btnStyle("dynScaleUp")   .. S .. 'fontSize="20">⁛</Button>')
-	    table.insert(lines, '  </HorizontalLayout>')
+	    -- Row 2: [spacer] [·] [↻] [spacer]
+	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynScaleDown", "28", "·",    1, 2))
+	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "22", "↻",    2, 2))
 
-	    -- Row 3: [spacer] [scaleDown] [rotate] [spacer]
-	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="0 0 0 0" childAlignment="MiddleCenter" preferredHeight="60">')
-	    table.insert(lines, '    ' .. sp)
-	    table.insert(lines, '    <Button onClick="btn_scaleDown" tooltip="Scale down\nall tokens, or just selected" ' .. btnStyle("dynScaleDown") .. S .. 'fontSize="32">·</Button>')
-	    table.insert(lines, '    <Button onClick="btn_rotate"    tooltip="Rotate token 180°\nall tokens, or just selected" ' .. btnStyle("dynMod") .. S .. 'fontSize="28">↻</Button>')
-	    table.insert(lines, '    ' .. sp)
-	    table.insert(lines, '  </HorizontalLayout>')
+	    -- Token slots — below modifier grid with extra gap
+	    local slotStartRow = 3
+	    local slotExtraGap = 8
 
-	    -- Token slots 1–6 (each hidden by default, shown/labelled by showDynamicPanel)
 	    for i = 1, MAX_TOKENS do
-	        table.insert(lines, '  <HorizontalLayout')
-	        table.insert(lines, '    id="dynSlotRow_' .. i .. '"')
+	        local yOffset = -(PAD + slotStartRow * STEP + slotExtraGap + (i - 1) * (BW + GAP))
+	        -- Name button
+	        table.insert(lines, '  <Button id="dynSlot_' .. i .. '"')
+	        table.insert(lines, '    onClick="btn_select_' .. i .. '"')
+	        table.insert(lines, '    ' .. btnStyle("dynSlot"))
 	        table.insert(lines, '    active="False"')
-	        table.insert(lines, '    spacing="4" padding="0 0 0 0"')
-	        table.insert(lines, '    childAlignment="MiddleCenter"')
-	        table.insert(lines, '    preferredHeight="60">')
-	        table.insert(lines, '    <Button id="dynSlot_' .. i .. '"')
-	        table.insert(lines, '      onClick="btn_select_' .. i .. '"')
-	        table.insert(lines, '      ' .. btnStyle("dynSlot"))
-	        table.insert(lines, '      active="False"')
-	        table.insert(lines, '      tooltip="Click to select — modifiers apply to selected token only"')
-	        table.insert(lines, '      fontSize="20" preferredWidth="310" preferredHeight="52"')
-	        table.insert(lines, '      >–</Button>')
-	        table.insert(lines, '    <Button id="dynRemove_' .. i .. '"')
-	        table.insert(lines, '      onClick="btn_remove_' .. i .. '"')
-	        table.insert(lines, '      ' .. btnStyle("dynRemove"))
-	        table.insert(lines, '      active="False"')
-	        table.insert(lines, '      tooltip="Remove this token"')
-	        table.insert(lines, '      fontSize="24" preferredWidth="56" preferredHeight="52"')
-	        table.insert(lines, '      >✕</Button>')
-	        table.insert(lines, '  </HorizontalLayout>')
+	        table.insert(lines, '    tooltip="Click to select — modifiers apply to selected token only"')
+	        table.insert(lines, '    width="' .. SW .. '" height="' .. BW .. '"')
+	        table.insert(lines, '    rectAlignment="UpperLeft"')
+	        table.insert(lines, '    offsetXY="' .. PAD .. ' ' .. yOffset .. '"')
+	        table.insert(lines, '    fontSize="18">–</Button>')
+	        -- Remove button
+	        table.insert(lines, '  <Button id="dynRemove_' .. i .. '"')
+	        table.insert(lines, '    onClick="btn_remove_' .. i .. '"')
+	        table.insert(lines, '    ' .. btnStyle("dynRemove"))
+	        table.insert(lines, '    active="False"')
+	        table.insert(lines, '    tooltip="Remove token"')
+	        table.insert(lines, '    width="' .. RW .. '" height="' .. BW .. '"')
+	        table.insert(lines, '    rectAlignment="UpperLeft"')
+	        table.insert(lines, '    offsetXY="' .. (PAD + SW + GAP) .. ' ' .. yOffset .. '"')
+	        table.insert(lines, '    fontSize="20">✕</Button>')
 	    end
 
 	    table.insert(lines, '</Panel>')  -- end dynamicPanel
@@ -836,12 +858,12 @@
 	    printToColor("  from " .. targetName .. " (" .. (prevTarget or "?") .. ")", playerColor, { 1, 1, 1 })
 	end
 
-	function btn_remove_1(_, pc) handleRemove(1, pc) end
-	function btn_remove_2(_, pc) handleRemove(2, pc) end
-	function btn_remove_3(_, pc) handleRemove(3, pc) end
-	function btn_remove_4(_, pc) handleRemove(4, pc) end
-	function btn_remove_5(_, pc) handleRemove(5, pc) end
-	function btn_remove_6(_, pc) handleRemove(6, pc) end
+	function btn_remove_1(player, pc) pc = (type(player) == "userdata" and player.color) or pc handleRemove(1, pc) end
+	function btn_remove_2(player, pc) pc = (type(player) == "userdata" and player.color) or pc handleRemove(2, pc) end
+	function btn_remove_3(player, pc) pc = (type(player) == "userdata" and player.color) or pc handleRemove(3, pc) end
+	function btn_remove_4(player, pc) pc = (type(player) == "userdata" and player.color) or pc handleRemove(4, pc) end
+	function btn_remove_5(player, pc) pc = (type(player) == "userdata" and player.color) or pc handleRemove(5, pc) end
+	function btn_remove_6(player, pc) pc = (type(player) == "userdata" and player.color) or pc handleRemove(6, pc) end
 
 -- ──────────────────────────────────────────────────────────────
 --  TOKEN SELECT HANDLERS
@@ -1132,14 +1154,14 @@
 	end
 
 	function btn_heightUp(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyHeightToTokens(sel[1].getGUID(), HEIGHT_STEP, playerColor)
 	end
 
 	function btn_heightDown(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyHeightToTokens(sel[1].getGUID(), -HEIGHT_STEP, playerColor)
@@ -1176,14 +1198,14 @@
 	end
 
 	function btn_scaleUp(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyScaleToTokens(sel[1].getGUID(), SCALE_STEP, playerColor)
 	end
 
 	function btn_scaleDown(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyScaleToTokens(sel[1].getGUID(), -SCALE_STEP, playerColor)
@@ -1215,7 +1237,7 @@
 	end
 
 	function btn_flip(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
@@ -1227,7 +1249,7 @@
 	end
 
 	function btn_rotate(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
@@ -1239,7 +1261,7 @@
 	end
 
 	function btn_vertical(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyTransformToTokens(sel[1].getGUID(), playerColor, function(token, entry)
@@ -1263,14 +1285,14 @@
 	end
 
 	function btn_radiusUp(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyRadiusToModel(sel[1].getGUID(), RADIUS_STEP, playerColor)
 	end
 
 	function btn_radiusDown(player, playerColor)
-		playerColor = (type(player) == "userdata" and player.color) or playerColor
+	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyRadiusToModel(sel[1].getGUID(), -RADIUS_STEP, playerColor)
