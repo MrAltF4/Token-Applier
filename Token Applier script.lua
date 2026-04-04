@@ -43,6 +43,7 @@
 	local tokenHistory         = {}
 	local collisionCooldown    = false  -- debounce flag for onCollisionEnter
 	local heldModels = {}
+	local settingsOpen = false
 	
 
 -- ──────────────────────────────────────────────────────────────
@@ -230,6 +231,21 @@
 	function btn_history_8(_, _) activateHistoryEntry(8) end
 
 -- ──────────────────────────────────────────────────────────────
+--  SETTINGS BUTTON (XML)
+-- ──────────────────────────────────────────────────────────────
+
+function btn_toggleSettings(_, _)
+    settingsOpen = not settingsOpen
+    if settingsOpen then
+        self.UI.show("settingsPanel")
+    else
+        self.UI.hide("settingsPanel")
+    end
+    self.UI.setAttribute("settingsBtn", "color", settingsOpen and "#1A6ECC" or "#000000")
+end
+
+
+-- ──────────────────────────────────────────────────────────────
 --  XML UI
 --  History grid (flat, on TC surface, positive Z)
 --  Preview indicator (vertical billboard, above TC on Y axis)
@@ -315,6 +331,53 @@
 
 	    table.insert(lines, '  </GridLayout>')
 	    table.insert(lines, '</Panel>')
+		
+		-- TEST CODE
+		--table.insert(lines, '<Button onClick="btn_toggleSettings" showAnimation="Grow" animationDuration="2.0" active="True">Test</Button>')
+
+		-- ── Settings toggle button ──
+		table.insert(lines, '<Button id="settingsBtn"')
+		table.insert(lines, '  onClick="btn_toggleSettings"')
+		table.insert(lines, '  color="' .. (settingsOpen and "#1A6ECC" or "#000000") .. '"')
+		table.insert(lines, '  position="0 540 -25"')
+		table.insert(lines, '  rotation="0 0 0"')
+		table.insert(lines, '  width="448" height="60"')
+		table.insert(lines, '  fontSize="40"')
+		table.insert(lines, '  textColor="#FDFF6F"')
+		table.insert(lines, '  tooltip="Open/close settings"')
+		table.insert(lines, '  padding="5 5 5 5">⚙</Button>')
+
+		-- ── Settings panel (always present, animated) ──
+		table.insert(lines, '<Panel id="settingsPanel"')
+		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+		table.insert(lines, '  showAnimation="SlideIn_Right"')
+		table.insert(lines, '  hideAnimation="SlideIn_Right"')
+		table.insert(lines, '  animationDuration="0.3"')
+		table.insert(lines, '  position="480 540 -25"')
+		table.insert(lines, '  rotation="0 0 180"')
+		table.insert(lines, '  width="448" height="60"')
+		table.insert(lines, '  color="#484716F2">')
+
+		table.insert(lines, '  <HorizontalLayout spacing="4" padding="8 8 8 8" childAlignment="MiddleCenter">')
+
+		table.insert(lines, '    <Button onClick="btn_restoreTokens"')
+		table.insert(lines, '      tooltip="Restore tokens after save/load if any are missing"')
+		table.insert(lines, '      color="#484716F2" fontSize="28" preferredWidth="130" preferredHeight="80"')
+		table.insert(lines, '      textColor="#FFFFFF">↺</Button>')
+
+		table.insert(lines, '    <Button onClick="btn_debug"')
+		table.insert(lines, '      tooltip="Print current hover-token table to console"')
+		table.insert(lines, '      color="#484716F2" fontSize="25" preferredWidth="130" preferredHeight="80"')
+		table.insert(lines, '      textColor="#FFFFFF">Debug IDs</Button>')
+
+		table.insert(lines, '    <Button onClick="btn_clearHistory"')
+		table.insert(lines, '      tooltip="Clear all token history and reset template"')
+		table.insert(lines, '      color="#484716F2" fontSize="28" preferredWidth="130" preferredHeight="80"')
+		table.insert(lines, '      textColor="#FFFFFF">※</Button>')
+
+		table.insert(lines, '  </HorizontalLayout>')
+		table.insert(lines, '</Panel>')
+
 
 	    local xml = '<Panel width="2000" height="2000" color="#00000000">\n'
 	             .. table.concat(lines, "\n")
@@ -328,14 +391,11 @@
 -- ──────────────────────────────────────────────────────────────
 
 	local BTN = {
-	    SET_TEMPLATE  = 0,
-	    TOGGLE_TOKEN  = 1,
-	    RESTORE       = 2,
-	    DEBUG         = 3,
-	    CLEAR_HISTORY = 4,
+		SET_TEMPLATE  = 0,
+		TOGGLE_TOKEN  = 1,
 	}
 
-	local DYN_START       = 5
+	local DYN_START       = 2
 	local DYN_HEIGHT_UP   = DYN_START + 0
 	local DYN_HEIGHT_DOWN = DYN_START + 1
 	local DYN_SCALE_UP    = DYN_START + 2
@@ -760,7 +820,7 @@
 	    saveState()
 	    refreshTemplateButton()
 	    rebuildXML()
-	    printToColor("Token history cleared.", playerColor, { 1, 0.8, 0.3 })
+	    printToAll("Token history cleared.", { 1, 0.8, 0.3 })
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -786,29 +846,10 @@
 	        color = { 0, 0, 0, 1.0 }, font_color = { 0.3, 0.8, 1.0 },
 	    })
 
-	    -- 2: Restore
-	    self.createButton({
-	        label = "↺", tooltip = "Debug: Restore tokens after save/load if any are missing",
-	        click_function = "btn_restoreTokens", function_owner = self,
-	        position = { -1.5, 0.2, 7.1 }, width = 400, height = 300, font_size = 150,
-	        color = { 0, 0, 0, 0.7 }, font_color = { 0.8, 0.8, 0.3 },
-	    })
 
-	    -- 3: Debug
-	    self.createButton({
-	        label = "Debug IDs", tooltip = "Debug: Print current hover-token table to console",
-	        click_function = "btn_debug", function_owner = self,
-	        position = { 0, 0.2, 7.1 }, width = 1100, height = 300, font_size = 150,
-	        color = { 0, 0, 0, 0.7 }, font_color = { 0.8, 0.8, 0.3 },
-	    })
 
-	    -- 4: Clear History
-	    self.createButton({
-	        label = "※", tooltip = "Clear all token history and reset template",
-	        click_function = "btn_clearHistory", function_owner = self,
-	        position = { 1.5, 0.2, 7.1 }, width = 400, height = 300, font_size = 150,
-	        color = { 0, 0, 0, 0.7 }, font_color = { 0.8, 0.8, 0.3 },
-	    })
+
+
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1242,7 +1283,7 @@
 
 	function btn_restoreTokens(_, playerColor)
 	    if not templateJSON then
-	        printToColor("No template stored — nothing to restore.", playerColor, { 1, 1, 0 }) return
+	        printToAll("No template stored — nothing to restore.", { 1, 1, 0 }) return
 	    end
 	    local restored  = 0
 	    local toReplace = {}
