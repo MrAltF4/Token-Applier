@@ -41,6 +41,7 @@
 	local hudVisible           = true
 	local hudEnabled           = true
 	local dynPanelVisible      = false  -- tracks whether dynamic panel is currently shown
+	local historyEditMode 	= false
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -321,6 +322,35 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  HISTORY EDIT OVERLAY
+-- ──────────────────────────────────────────────────────────────
+
+	-- HistoryEdit button
+	function btn_toggleHistoryEdit(_, _)
+		historyEditMode = not historyEditMode
+		rebuildXML()
+	end
+	
+	local function deleteHistoryEntry(index)
+		if not tokenHistory[index] then return end
+		local removing = tokenHistory[index]
+		table.remove(tokenHistory, index)
+		if templateJSON == removing.json then
+			templateJSON  = nil
+			templateScale = nil
+			if previewGUID then
+				local obj = getObjectFromGUID(previewGUID)
+				if obj then obj.destroy() end
+				previewGUID = nil
+			end
+		end
+		saveState()
+		refreshTemplateButton()
+		rebuildXML()
+		rebuildHUD()
+	end
+
+-- ──────────────────────────────────────────────────────────────
 --  HISTORY BUTTON HANDLERS
 -- ──────────────────────────────────────────────────────────────
 
@@ -332,6 +362,16 @@
 	function btn_history_6(_, _) activateHistoryEntry(6) end
 	function btn_history_7(_, _) activateHistoryEntry(7) end
 	function btn_history_8(_, _) activateHistoryEntry(8) end
+	
+	-- DeleteHistory HANDLERS
+	function btn_deleteHistory_1(_, _) deleteHistoryEntry(1) end
+	function btn_deleteHistory_2(_, _) deleteHistoryEntry(2) end
+	function btn_deleteHistory_3(_, _) deleteHistoryEntry(3) end
+	function btn_deleteHistory_4(_, _) deleteHistoryEntry(4) end
+	function btn_deleteHistory_5(_, _) deleteHistoryEntry(5) end
+	function btn_deleteHistory_6(_, _) deleteHistoryEntry(6) end
+	function btn_deleteHistory_7(_, _) deleteHistoryEntry(7) end
+	function btn_deleteHistory_8(_, _) deleteHistoryEntry(8) end
 
 -- ──────────────────────────────────────────────────────────────
 --  HUD HISTORY HANDLERS
@@ -402,11 +442,14 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  SETTINGS BUTTON
+--  SETTINGS BUTTONs
 -- ──────────────────────────────────────────────────────────────
 
 	function btn_toggleSettings(_, _)
 		settingsOpen = not settingsOpen
+		if not settingsOpen then
+			historyEditMode = false
+		end
 		if settingsOpen then
 			self.UI.show("settingsPanel")
 			self.UI.show("clearHistoryPanel")
@@ -414,7 +457,13 @@
 			self.UI.hide("settingsPanel")
 			self.UI.hide("clearHistoryPanel")
 		end
+		rebuildXML()
 	end
+	
+
+
+
+	
 
 -- ──────────────────────────────────────────────────────────────
 --  DYNAMIC PANEL — show/hide helpers
@@ -533,32 +582,48 @@
 	    table.insert(lines,   ' color="#00000000">')
 	    table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
 	    for i = 1, HISTORY_MAX do
-	        local entry    = tokenHistory[i]
-	        local isActive = entry and (templateJSON == entry.json)
-	        local style    = isActive and "active" or (entry and "historySlot" or "ghost")
-	        local fnName   = "btn_history_" .. i
-	        table.insert(lines, '    <Button id="histBtn' .. i .. '"')
-	        table.insert(lines, '      onClick="' .. fnName .. '"')
-	        table.insert(lines, '      ' .. btnStyle(style))
-	        table.insert(lines, '      width="100" height="100"')
-	        table.insert(lines, '      padding="3 3 3 3">')
-	        if entry and entry.imageURL and entry.imageURL ~= "" then
-	            table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
-	        elseif entry then
-	            local display = shortName(stripBBCode(entry.name), 5, 3)
-	            table.insert(lines, '      <Text text="' .. display .. '" fontSize="20" color="#FFFFFF" alignment="MiddleCenter" width="80" height="80" />')
-	        else
-	            table.insert(lines, '      <Text text="·" fontSize="20" color="#404040" alignment="MiddleCenter" width="58" height="58" />')
-	        end
-	        table.insert(lines, '    </Button>')
-	    end
+			local entry    = tokenHistory[i]
+			local isActive = entry and (templateJSON == entry.json)
+
+			if historyEditMode and entry then
+				-- Edit mode: render X button in place of history button
+				table.insert(lines, '    <Button onClick="btn_deleteHistory_' .. i .. '"')
+				table.insert(lines, '      ' .. btnStyle("danger"))
+				table.insert(lines, '      width="100" height="100"')
+				table.insert(lines, '      padding="3 3 3 3">')
+				if entry.imageURL and entry.imageURL ~= "" then
+					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
+				end
+				-- Red transparent overlay layer
+				table.insert(lines, '      <Panel width="100" height="100" color="#AA000066" />')
+				table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="50" alignment="MiddleCenter" /></Button>')
+			else
+				-- Normal mode: render history button as usual
+				local style  = isActive and "active" or (entry and "historySlot" or "ghost")
+				local fnName = "btn_history_" .. i
+				table.insert(lines, '    <Button id="histBtn' .. i .. '"')
+				table.insert(lines, '      onClick="' .. fnName .. '"')
+				table.insert(lines, '      ' .. btnStyle(style))
+				table.insert(lines, '      width="100" height="100"')
+				table.insert(lines, '      padding="3 3 3 3">')
+				if entry and entry.imageURL and entry.imageURL ~= "" then
+					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
+				elseif entry then
+					local display = shortName(stripBBCode(entry.name), 5, 3)
+					table.insert(lines, '      <Text text="' .. display .. '" fontSize="20" color="#FFFFFF" alignment="MiddleCenter" width="80" height="80" />')
+				else
+					table.insert(lines, '      <Text text="·" fontSize="20" color="#404040" alignment="MiddleCenter" width="58" height="58" />')
+				end
+				table.insert(lines, '    </Button>')
+			end
+		end
 	    table.insert(lines, '  </GridLayout>')
 	    table.insert(lines, '</Panel>')
 
 	    -- ── Settings button ──
 	    table.insert(lines, '<Button id="settingsBtn"')
-	    table.insert(lines, '  onClick="btn_toggleSettings"')
-	    table.insert(lines, '  ' .. btnStyle("settings"))
+		table.insert(lines, '  onClick="btn_toggleSettings"')
+		table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
 	    table.insert(lines, '  position="0 -530 -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
@@ -574,11 +639,14 @@
 		table.insert(lines, '  showAnimation="Grow"')
 		table.insert(lines, '  hideAnimation="Shrink"')
 		table.insert(lines, '  animationDuration="0.1"')
-		table.insert(lines, '  position="-350 -300 -25"')  
+		table.insert(lines, '  position="-350 -330 -20"')
 		table.insert(lines, '  rotation="0 0 0"')
-		table.insert(lines, '  width="222" height="60"')
-		table.insert(lines, '  color="#2B1A00F2">')  -- or whatever colour you want
-		table.insert(lines, '  <Button onClick="btn_clearHistory" tooltip="Clear all token history and reset template" ' .. btnStyle("danger") .. ' fontSize="22" preferredWidth="448" preferredHeight="60">Clear History ✕</Button>')
+		table.insert(lines, '  width="222" height="128"')  -- increased height to fit both buttons
+		table.insert(lines, '  color="#2B1A00F2">')
+		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
+		table.insert(lines, '    <Button onClick="btn_clearHistory" tooltip="Clear all token history and reset template" ' .. btnStyle("danger") .. ' fontSize="22" preferredWidth="214" preferredHeight="60"><Text text="Clear History ✕" color="' .. BTN_STYLE.danger.textColor .. '" fontSize="22" /></Button>')
+		table.insert(lines, '    <Button onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(historyEditMode and "danger" or "settingsItem") .. ' fontSize="22" preferredWidth="214" preferredHeight="60"><Text text="' .. (historyEditMode and "Delete →" or "Edit History") .. '" color="' .. BTN_STYLE[historyEditMode and "danger" or "settingsItem"].textColor .. '" fontSize="22" /></Button>')
+		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 		
 		-- Settings panel
@@ -610,7 +678,7 @@
 	        if ok and type(data) == "table" then
 	            local n = (data.Nickname and data.Nickname ~= "") and data.Nickname
 	                   or (data.Name    and data.Name    ~= "") and data.Name
-	            templateLabel = n and ("Set Template\n[" .. n .. "]") or "Set Template\n[custom]"
+	            templateLabel = n and ("Set Template\n[" .. stripBBCode(n) .. "]") or "Set Template\n[custom]"
 	        end
 	    end
 
@@ -813,7 +881,7 @@
 	    table.insert(lines, '</Panel>')
 
 	    table.insert(lines, '<Button id="tc_hud_restore"')
-	    table.insert(lines, '  active="False"')
+		table.insert(lines, '  active="' .. (not hudVisible and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
 	    table.insert(lines, '  offsetXY="0 10"')
 	    table.insert(lines, '  width="60" height="32"')
@@ -821,7 +889,7 @@
 	    table.insert(lines, '  ' .. btnStyle("hudAdd"))
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Show Token Controller HUD"')
-	    table.insert(lines, '  >TC</Button>')
+	    table.insert(lines, '  >Token Applier</Button>')
 
 	    return table.concat(lines, "\n")
 	end
@@ -859,9 +927,9 @@
 	    if templateJSON then
 	        local ok, data = pcall(JSON.decode, templateJSON)
 	        if ok and type(data) == "table" and data.Nickname and data.Nickname ~= "" then
-	            label = "Set Template\n[" .. data.Nickname .. "]"
-	        elseif ok and type(data) == "table" and data.Name then
-	            label = "Set Template\n[" .. data.Name .. "]"
+				label = "Set Template\n[" .. stripBBCode(data.Nickname) .. "]"
+			elseif ok and type(data) == "table" and data.Name then
+				label = "Set Template\n[" .. stripBBCode(data.Name) .. "]"
 	        else
 	            label = "Set Template\n[custom]"
 	        end
