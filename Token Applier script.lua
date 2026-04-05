@@ -57,7 +57,7 @@
 
 	local BTN_STYLE = {
 	    primary = {
-	        colors     = "#0D2B40F2|#1A5C8AF2|#0A1F2EF2|#333333AA",
+	        colors     = "#0D2B40FF|#1A5C8AFF|#0A1F2EFF|#333333AA",
 	        textColor  = "#3CCCFF",
 	        transition = "ColorTint",
 	    },
@@ -129,7 +129,7 @@
 	    -- Remove button
 	    dynRemove = {
 	        colors     = "#260D0DE6|#401A1AF2|#1A0808E6|#333333AA",
-	        textColor  = "#FF6666",
+	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
 	    hudAdd = {
@@ -281,6 +281,10 @@
 		if current ~= "" then table.insert(lines, current) end
 		return table.concat(lines, "\n")
 	end
+	
+	local function stripBBCode(name)
+		return name:gsub("%[/?[%a][%a0-9]*%]", "")
+	end
 
 -- ──────────────────────────────────────────────────────────────
 --  TOKEN HISTORY (data layer)
@@ -402,12 +406,14 @@
 -- ──────────────────────────────────────────────────────────────
 
 	function btn_toggleSettings(_, _)
-	    settingsOpen = not settingsOpen
-	    if settingsOpen then
-	        self.UI.show("settingsPanel")
-	    else
-	        self.UI.hide("settingsPanel")
-	    end
+		settingsOpen = not settingsOpen
+		if settingsOpen then
+			self.UI.show("settingsPanel")
+			self.UI.show("clearHistoryPanel")
+		else
+			self.UI.hide("settingsPanel")
+			self.UI.hide("clearHistoryPanel")
+		end
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -450,7 +456,7 @@
 	        if slotActive and tGUID then
 	            local name       = getTokenName(tGUID)
 	            local isSelected = (selectedTokenGUID == tGUID)
-	            self.UI.setAttribute(slotId, "text",      shortName(name, 12, 1))
+	            self.UI.setAttribute(slotId, "text",      shortName(stripBBCode(name), 35, 2))
 	            self.UI.setAttribute(slotId, "colors",    BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
 	            self.UI.setAttribute(slotId, "textColor", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].textColor)
 	            self.setVar("removeSlot_" .. i, tGUID)
@@ -521,7 +527,7 @@
 
 	    -- ── History grid ──
 	    table.insert(lines, '<Panel id="historyPanel"')
-	    table.insert(lines,   ' position="0 -400 -25"')
+	    table.insert(lines,   ' position="0 -380 -25"')
 	    table.insert(lines,   ' rotation="0 0 0"')
 	    table.insert(lines,   ' width="448" height="228"')
 	    table.insert(lines,   ' color="#00000000">')
@@ -539,7 +545,7 @@
 	        if entry and entry.imageURL and entry.imageURL ~= "" then
 	            table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
 	        elseif entry then
-	            local display = shortName(entry.name, 5, 3)
+	            local display = shortName(stripBBCode(entry.name), 5, 3)
 	            table.insert(lines, '      <Text text="' .. display .. '" fontSize="20" color="#FFFFFF" alignment="MiddleCenter" width="80" height="80" />')
 	        else
 	            table.insert(lines, '      <Text text="·" fontSize="20" color="#404040" alignment="MiddleCenter" width="58" height="58" />')
@@ -553,27 +559,41 @@
 	    table.insert(lines, '<Button id="settingsBtn"')
 	    table.insert(lines, '  onClick="btn_toggleSettings"')
 	    table.insert(lines, '  ' .. btnStyle("settings"))
-	    table.insert(lines, '  position="0 -550 -25"')
+	    table.insert(lines, '  position="0 -530 -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
 	    table.insert(lines, '  fontSize="40"')
 	    table.insert(lines, '  tooltip="Open/close settings"')
-	    table.insert(lines, '  padding="5 5 5 5">⚙</Button>')
+	    local ss = BTN_STYLE.settings
+		table.insert(lines, '  padding="5 5 5 5"><Text text="⚙" color="' .. ss.textColor .. '" fontSize="40" /></Button>')
 
 	    -- ── Settings panel ──
+		-- clear history panel
+		table.insert(lines, '<Panel id="clearHistoryPanel"')
+		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+		table.insert(lines, '  showAnimation="Grow"')
+		table.insert(lines, '  hideAnimation="Shrink"')
+		table.insert(lines, '  animationDuration="0.1"')
+		table.insert(lines, '  position="-350 -300 -25"')  
+		table.insert(lines, '  rotation="0 0 0"')
+		table.insert(lines, '  width="222" height="60"')
+		table.insert(lines, '  color="#2B1A00F2">')  -- or whatever colour you want
+		table.insert(lines, '  <Button onClick="btn_clearHistory" tooltip="Clear all token history and reset template" ' .. btnStyle("danger") .. ' fontSize="22" preferredWidth="448" preferredHeight="60">Clear History ✕</Button>')
+		table.insert(lines, '</Panel>')
+		
+		-- Settings panel
 	    table.insert(lines, '<Panel id="settingsPanel"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
-	    table.insert(lines, '  showAnimation="SlideIn_Right"')
-	    table.insert(lines, '  hideAnimation="SlideIn_Right"')
-	    table.insert(lines, '  animationDuration="0.4"')
-	    table.insert(lines, '  position="-460 -550 -25"')
+	    table.insert(lines, '  showAnimation="Grow"')
+		table.insert(lines, '  hideAnimation="Shrink"')
+	    table.insert(lines, '  animationDuration="0.1"')
+	    table.insert(lines, '  position="-460 -530 -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
 	    table.insert(lines, '  color="#484716F2">')
 	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="8 8 8 8" childAlignment="MiddleCenter">')
 	    table.insert(lines, '    <Button onClick="btn_restoreTokens" tooltip="Restore tokens after save/load if any are missing" ' .. btnStyle("settingsItem") .. ' fontSize="28" preferredWidth="130" preferredHeight="80">↺</Button>')
-	    table.insert(lines, '    <Button onClick="btn_debug" tooltip="Print current hover-token table to console" ' .. btnStyle("settingsItem") .. ' fontSize="25" preferredWidth="130" preferredHeight="80">Debug IDs</Button>')
-	    table.insert(lines, '    <Button onClick="btn_clearHistory" tooltip="Clear all token history and reset template" ' .. btnStyle("settingsItem") .. ' fontSize="28" preferredWidth="130" preferredHeight="80">※</Button>')
+	    table.insert(lines, '    <Button onClick="btn_debug" tooltip="Print current hover-token table to console" ' .. btnStyle("settingsItem") .. ' fontSize="25" preferredWidth="150" preferredHeight="80">Debug IDs</Button>')
 	    table.insert(lines, '    <Button id="hudToggleBtn"')
 	    table.insert(lines, '      onClick="btn_toggleHUD"')
 	    table.insert(lines, '      tooltip="Show or hide the on-screen HUD"')
@@ -598,7 +618,7 @@
 	    table.insert(lines, '  onClick="btn_toggleToken"')
 	    table.insert(lines, '  ' .. btnStyle("primary"))
 	    table.insert(lines, '  tooltip="Select a model, then click to add token"')
-	    table.insert(lines, '  position="0 -150 -25"')
+	    table.insert(lines, '  position="0 -150 -25"') -- X , Y, Z
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="200"')
 	    table.insert(lines, '  fontSize="60"')
@@ -608,11 +628,13 @@
 	    table.insert(lines, '  onClick="btn_setTemplate"')
 	    table.insert(lines, '  ' .. btnStyle("template"))
 	    table.insert(lines, '  tooltip="Drop any object onto TC, or select an object then click to capture it as the token template"')
-	    table.insert(lines, '  position="0 -650 -25"')
+	    table.insert(lines, '  position="0 -620 -25"') -- X , Y, Z
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="100"')
 	    table.insert(lines, '  fontSize="26"')
-	    table.insert(lines, '  >' .. templateLabel .. '</Button>')
+	    local ts = BTN_STYLE.template
+		local ts = BTN_STYLE.template
+		table.insert(lines, '  ><Text id="setTemplateBtn_text" text="' .. templateLabel .. '" color="' .. ts.textColor .. '" fontSize="26" /></Button>')
 
 	    -- ── Dynamic panel ──
 	    -- Buttons are direct children of the panel, positioned with
@@ -638,44 +660,49 @@
 	    local function row(r) return -(PAD + r * STEP) end
 
 	    local function mbtn(id, onClick, tooltip, style, fontSize, label, c, r, extra)
-	        local idA  = id and ('id="' .. id .. '" ') or ""
-	        local exA  = extra or ""
-	        return '  <Button ' .. idA
-	            .. 'onClick="' .. onClick .. '" '
-	            .. 'tooltip="' .. tooltip .. '" '
-	            .. btnStyle(style) .. ' '
-	            .. 'width="' .. BW .. '" height="' .. BW .. '" '
-	            .. 'fontSize="' .. fontSize .. '" '
-	            .. 'rectAlignment="UpperLeft" '
-	            .. 'offsetXY="' .. col(c) .. ' ' .. row(r) .. '" '
-	            .. exA .. '>'
-	            .. label .. '</Button>'
-	    end
+			local idA  = id and ('id="' .. id .. '" ') or ""
+			local exA  = extra or ""
+			local s    = BTN_STYLE[style] or BTN_STYLE.ghost
+			return '  <Button ' .. idA
+				.. 'onClick="' .. onClick .. '" '
+				.. 'tooltip="' .. tooltip .. '" '
+				.. btnStyle(style) .. ' '
+				.. 'width="' .. BW .. '" height="' .. BW .. '" '
+				.. 'fontSize="' .. fontSize .. '" '
+				.. 'rectAlignment="UpperLeft" '
+				.. 'offsetXY="' .. col(c) .. ' ' .. row(r) .. '" '
+				.. exA .. '>'
+				.. '<Text text="' .. label .. '" color="' .. s.textColor .. '" fontSize="' .. fontSize .. '" />'
+				.. '</Button>'
+		end
 
-	    local SW = 222   -- slot name button width
+	    local SW = 300   -- slot name button width
 	    local RW = BW    -- remove button width
 
 	    table.insert(lines, '<Panel id="dynamicPanel"')
+		table.insert(lines, '  showAnimation="Grow"')
+		table.insert(lines, '  hideAnimation="Shrink"')
+	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  active="False"')
-	    table.insert(lines, '  position="400 -370 -25"')
+	    table.insert(lines, '  position="440 -395 -25"')  -- X , Y, Z(no change needed)
 	    table.insert(lines, '  rotation="0 0 0"')
-	    table.insert(lines, '  width="310" height="700"')
+	    table.insert(lines, '  width="400" height="700"')    -- orginal width="310"
 	    table.insert(lines, '  color="#00000000">')
 
 	    -- Row 0: [spacer] [•] [Flip] [↕]
-	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynGreenBtn",   "28", "•",    1, 0))
-	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "18", "Flip", 2, 0))
-	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "22", "↕",    3, 0))
+	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynGreenBtn",   "30", "•",    1, 0))
+	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "30", "Flip", 2, 0))
+	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "30", "↕",    3, 0))
 
 	    -- Row 1: [⁘] [▲] [▼] [⁛]
-	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynRedBtn", "18", "⁘",    0, 1, 'active="False"'))
-	    table.insert(lines, mbtn(nil,             "btn_heightUp",  "Raise token height\nall tokens, or just selected","dynMod",    "22", "▲",    1, 1))
-	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "22", "▼",    2, 1))
-	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynGreenBtn",  "18", "⁛",    3, 1, 'active="False"'))
+	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynRedBtn", "30", "⁘",    0, 1, 'active="False"'))
+	    table.insert(lines, mbtn(nil,             "btn_heightUp",  "Raise token height\nall tokens, or just selected","dynMod",    "30", "▲",    1, 1))
+	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "30", "▼",    2, 1))
+	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynGreenBtn",  "30", "⁛",    3, 1, 'active="False"'))
 
 	    -- Row 2: [spacer] [·] [↻] [spacer]
-	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynRedBtn", "28", "·",    1, 2))
-	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "22", "↻",    2, 2))
+	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynRedBtn", "30", "·",    1, 2))
+	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "30", "↻",    2, 2))
 
 	    -- Token slots — below modifier grid with extra gap
 	    local slotStartRow = 3
@@ -692,7 +719,7 @@
 	        table.insert(lines, '    width="' .. SW .. '" height="' .. BW .. '"')
 	        table.insert(lines, '    rectAlignment="UpperLeft"')
 	        table.insert(lines, '    offsetXY="' .. PAD .. ' ' .. yOffset .. '"')
-	        table.insert(lines, '    fontSize="18">–</Button>')
+	        table.insert(lines, '    fontSize="22">–</Button>')
 	        -- Remove button
 	        table.insert(lines, '  <Button id="dynRemove_' .. i .. '"')
 	        table.insert(lines, '    onClick="btn_remove_' .. i .. '"')
@@ -702,7 +729,7 @@
 	        table.insert(lines, '    width="' .. RW .. '" height="' .. BW .. '"')
 	        table.insert(lines, '    rectAlignment="UpperLeft"')
 	        table.insert(lines, '    offsetXY="' .. (PAD + SW + GAP) .. ' ' .. yOffset .. '"')
-	        table.insert(lines, '    fontSize="20">✕</Button>')
+	        table.insert(lines, '    fontSize="30"><Text text="✕" color="#FFFFFF" /></Button>')
 	    end
 
 	    table.insert(lines, '</Panel>')  -- end dynamicPanel
@@ -749,7 +776,7 @@
 	        if entry and entry.imageURL and entry.imageURL ~= "" then
 	            table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
 	        elseif entry then
-	            local display = shortName(entry.name, 4, 2)
+	            local display = shortName(stripBBCode(entry.name), 4, 2)
 	            table.insert(lines, '      <Text text="' .. display .. '" fontSize="14" color="#FFFFFF" alignment="MiddleCenter" />')
 	        else
 	            table.insert(lines, '      <Text text="·" fontSize="16" color="#303030" alignment="MiddleCenter" />')
@@ -799,17 +826,28 @@
 	    return table.concat(lines, "\n")
 	end
 
+	local function stripBetween(str, startTag, endTag)
+		local s = str:find(startTag, 1, true)
+		if not s then return str end
+		local e = str:find(endTag, s, true)
+		if not e then return str end
+		return str:sub(1, s - 1) .. str:sub(e + #endTag)
+	end
+
 	rebuildHUD = function()
-	    if hudRebuildPending then return end
-	    hudRebuildPending = true
-	    Wait.time(function()
-	        hudRebuildPending = false
-	        local guid     = self.getGUID()
-	        local hudXml   = buildHUDXml(guid)
-	        local existing = UI.getXml() or ""
-	        existing = existing:gsub("%s+$", "")
-	        UI.setXml(existing .. "\n" .. hudXml)
-	    end, 0.1)
+		if hudRebuildPending then return end
+		hudRebuildPending = true
+		Wait.time(function()
+			hudRebuildPending = false
+			local guid   = self.getGUID()
+			local hudXml = buildHUDXml(guid)
+			local existing = UI.getXml() or ""
+			existing = existing:gsub("%s+$", "")
+			existing = stripBetween(existing, '<Panel id="tc_hud_main"', '</Panel>')
+			existing = stripBetween(existing, '<Button id="tc_hud_restore"', '</Button>')
+			existing = existing:gsub("%s+$", "")
+			UI.setXml(existing .. "\n" .. hudXml)
+		end, 0.1)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -828,7 +866,7 @@
 	            label = "Set Template\n[custom]"
 	        end
 	    end
-	    self.UI.setAttribute("setTemplateBtn", "text", label)
+	    self.UI.setAttribute("setTemplateBtn_text", "text", label)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1380,6 +1418,10 @@
 	        local targetName = targetObj and targetObj.getName() or "Unknown"
 	        printToColor("Added token: " .. getTokenName(newGUID), playerColor, { 0.5, 1, 0.5 })
 	        printToColor("  to " .. targetName .. " (" .. targetGUID .. ")", playerColor, { 1, 1, 1 })
+			-- Force panel refresh
+			lastSelectedGUID = nil
+			local tokens = findTokensForTarget(targetGUID)
+			showDynamicPanel(targetGUID, #tokens)
 	    end)
 	end
 
