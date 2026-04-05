@@ -360,6 +360,7 @@
 	function btn_toggleHistoryEdit(_, _)
 		historyEditMode = not historyEditMode
 		rebuildXML()
+		rebuildHUD()
 	end
 	
 	local function deleteHistoryEntry(index)
@@ -452,27 +453,56 @@
 	end
 
 	function hud_toggleVisible(player, _, _)
-	    hudVisible = not hudVisible
-	    if hudVisible then
-	        UI.show("tc_hud_main")
-	        UI.hide("tc_hud_restore")
-	    else
-	        UI.hide("tc_hud_main")
-	        UI.show("tc_hud_restore")
-	    end
+		hudVisible = not hudVisible
+		if hudVisible then
+			UI.show("tc_hud_core")
+			UI.show("tc_hud_minimize")
+			UI.show("tc_hud_settings")
+			if not hideSetTemplate then UI.show("tc_hud_setTemplate") end
+			UI.hide("tc_hud_restore")
+		else
+			UI.hide("tc_hud_core")
+			UI.hide("tc_hud_minimize")
+			UI.hide("tc_hud_settings")
+			UI.hide("tc_hud_setTemplate")
+			UI.hide("tc_hud_settingsPanel")
+			UI.hide("tc_hud_off")
+			UI.hide("tc_hud_restore_tokens")
+			UI.hide("tc_hud_templateVis")
+			settingsOpen = false
+			UI.show("tc_hud_restore")
+		end
 	end
 
 	function btn_toggleHUD(_, _)
-	    hudEnabled = not hudEnabled
-	    if hudEnabled then
-	        hudVisible = true
-	        UI.show("tc_hud_main")
-	    else
-	        UI.hide("tc_hud_main")
-	    end
-	    rebuildXML()
+		hudEnabled = not hudEnabled
+		if hudEnabled then
+			hudVisible = true
+			UI.show("tc_hud_core")
+			UI.show("tc_hud_minimize")
+			UI.show("tc_hud_settings")
+			if not hideSetTemplate then UI.show("tc_hud_setTemplate") end
+			UI.hide("tc_hud_restore")
+		else
+			UI.hide("tc_hud_core")
+			UI.hide("tc_hud_minimize")
+			UI.hide("tc_hud_settings")
+			UI.hide("tc_hud_setTemplate")
+			UI.hide("tc_hud_settingsPanel")
+			UI.hide("tc_hud_off")
+			UI.hide("tc_hud_restore_tokens")
+			UI.hide("tc_hud_templateVis")
+			UI.hide("tc_hud_restore")
+			settingsOpen = false
+		end
+		rebuildXML()
 	end
 
+	function hud_toggleSettings(player, _, _)
+		btn_toggleSettings(nil, nil)
+	end
+	
+	
 -- ──────────────────────────────────────────────────────────────
 --  SETTINGS BUTTONs
 -- ──────────────────────────────────────────────────────────────
@@ -485,9 +515,17 @@
 		if settingsOpen then
 			self.UI.show("settingsPanel")
 			self.UI.show("clearHistoryPanel")
+			UI.show("tc_hud_settingsPanel")
+			UI.show("tc_hud_off")
+			UI.show("tc_hud_restore_tokens")
+			UI.show("tc_hud_templateVis")
 		else
 			self.UI.hide("settingsPanel")
 			self.UI.hide("clearHistoryPanel")
+			UI.hide("tc_hud_settingsPanel")
+			UI.hide("tc_hud_off")
+			UI.hide("tc_hud_restore_tokens")
+			UI.hide("tc_hud_templateVis")
 		end
 		rebuildXML()
 	end
@@ -495,7 +533,13 @@
 	-- SetTemplate button toggle
 	function btn_toggleSetTemplate(_, _)
 		hideSetTemplate = not hideSetTemplate
+		if hideSetTemplate then
+			UI.hide("tc_hud_setTemplate")
+		else
+			UI.show("tc_hud_setTemplate")
+		end
 		rebuildXML()
+		rebuildHUD()
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -857,82 +901,196 @@
 --  GLOBAL HUD INJECTION
 -- ──────────────────────────────────────────────────────────────
 
+	-- ──────────────────────────────────────────────────────────────
+--  GLOBAL HUD INJECTION
+-- ──────────────────────────────────────────────────────────────
+
 	local function buildHUDXml(guid)
 	    local lines = {}
 	    local g = guid
 
-	    table.insert(lines, '<Panel id="tc_hud_main"')
-	    table.insert(lines, '  active="' .. (hudVisible and "True" or "False") .. '"')
-	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="0 10"')
-	    table.insert(lines, '  width="500" height="214"')
-	    table.insert(lines, '  color="#000000CC"')
-	    table.insert(lines, '  padding="6 6 6 6">')
+	    -- ── CORE panel ──
+	    -- Contains: Add Token, History Grid (2×4), Minimize footer
+	    table.insert(lines, '<Panel id="tc_hud_core"')
+		table.insert(lines, '  rectAlignment="LowerCenter"')
+		table.insert(lines, '  offsetXY="0 27"')
+		table.insert(lines, '  width="233" height="166"')
+		table.insert(lines, '  color="#00000000"') -- was CC
+		table.insert(lines, '  padding="4 4 4 4">')
 
-	    table.insert(lines, '  <GridLayout id="tc_hud_grid"')
-	    table.insert(lines, '    rectAlignment="UpperCenter"')
-	    table.insert(lines, '    cellSize="54 54" spacing="3 3"')
-	    table.insert(lines, '    startCorner="UpperLeft" startAxis="Horizontal"')
-	    table.insert(lines, '    childAlignment="UpperCenter"')
-	    table.insert(lines, '    width="488" height="114">')
+		table.insert(lines, '  <VerticalLayout spacing="3" childAlignment="UpperCenter">')
+
+		-- Add Token button
+		table.insert(lines, '    <Button id="tc_hud_add"')
+		table.insert(lines, '      onClick="' .. g .. '/hud_addToken"')
+		table.insert(lines, '      ' .. btnStyle("hudAdd"))
+		table.insert(lines, '      fontSize="18" preferredWidth="225" preferredHeight="44"')
+		table.insert(lines, '      tooltip="Add token to selected model"')
+		table.insert(lines, '      >＋ Add Token</Button>')
+
+		-- History grid (2 rows × 4 cols)
+		table.insert(lines, '    <GridLayout id="tc_hud_grid"')
+		table.insert(lines, '      cellSize="54 54" spacing="3 3"')
+		table.insert(lines, '      startCorner="UpperLeft" startAxis="Horizontal"')
+		table.insert(lines, '      childAlignment="UpperLeft"')
+		table.insert(lines, '      width="225" height="111">')
 
 	    for i = 1, HISTORY_MAX do
-	        local entry    = tokenHistory[i]
-	        local isActive = entry and (templateJSON == entry.json)
-	        local style    = isActive and "active" or (entry and "historySlot" or "ghost")
-	        local fnName   = g .. "/hud_history_" .. i
-	        table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
-	        table.insert(lines, '      onClick="' .. fnName .. '"')
-	        table.insert(lines, '      ' .. btnStyle(style))
-	        table.insert(lines, '      width="54" height="54"')
-	        table.insert(lines, '      padding="2 2 2 2">')
-	        if entry and entry.imageURL and entry.imageURL ~= "" then
-	            table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
-	        elseif entry then
-	            local display = shortName(stripBBCode(entry.name), 4, 2)
-	            table.insert(lines, '      <Text text="' .. display .. '" fontSize="14" color="#FFFFFF" alignment="MiddleCenter" />')
-	        else
-	            table.insert(lines, '      <Text text="·" fontSize="16" color="#303030" alignment="MiddleCenter" />')
-	        end
-	        table.insert(lines, '    </Button>')
-	    end
+			local entry    = tokenHistory[i]
+			local isActive = entry and (templateJSON == entry.json)
+			local fnName   = g .. "/hud_history_" .. i
 
-	    table.insert(lines, '  </GridLayout>')
+			if historyEditMode and entry then
+				table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
+				table.insert(lines, '      onClick="' .. g .. '/btn_deleteHistory_' .. i .. '"')
+				table.insert(lines, '      ' .. btnStyle("danger"))
+				table.insert(lines, '      width="54" height="54"')
+				table.insert(lines, '      padding="2 2 2 2">')
+				if entry.imageURL and entry.imageURL ~= "" then
+					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
+				end
+				table.insert(lines, '      <Panel width="54" height="54" color="#AA000066" />')
+				table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="28" alignment="MiddleCenter" /></Button>')
+			else
+				local style  = isActive and "active" or (entry and "historySlot" or "ghost")
+				table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
+				table.insert(lines, '      onClick="' .. fnName .. '"')
+				table.insert(lines, '      ' .. btnStyle(style))
+				table.insert(lines, '      width="54" height="54"')
+				table.insert(lines, '      padding="2 2 2 2">')
+				if entry and entry.imageURL and entry.imageURL ~= "" then
+					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
+				elseif entry then
+					local display = shortName(stripBBCode(entry.name), 4, 2)
+					table.insert(lines, '      <Text text="' .. display .. '" fontSize="14" color="#FFFFFF" alignment="MiddleCenter" />')
+				else
+					table.insert(lines, '      <Text text="·" fontSize="16" color="#303030" alignment="MiddleCenter" />')
+				end
+				table.insert(lines, '    </Button>')
+			end
+		end
 
-	    table.insert(lines, '  <HorizontalLayout')
-	    table.insert(lines, '    rectAlignment="LowerCenter"')
-	    table.insert(lines, '    spacing="6" padding="0 0 0 0"')
-	    table.insert(lines, '    childAlignment="MiddleCenter"')
-	    table.insert(lines, '    width="488" height="60">')
-	    table.insert(lines, '    <Button id="tc_hud_add"')
-	    table.insert(lines, '      onClick="' .. g .. '/hud_addToken"')
-	    table.insert(lines, '      ' .. btnStyle("hudAdd"))
-	    table.insert(lines, '      fontSize="18" preferredWidth="220" preferredHeight="52"')
-	    table.insert(lines, '      tooltip="Add token to selected model"')
-	    table.insert(lines, '      >＋ Add Token</Button>')
-	    table.insert(lines, '    <Button id="tc_hud_remove"')
-	    table.insert(lines, '      onClick="' .. g .. '/hud_removeTokens"')
-	    table.insert(lines, '      ' .. btnStyle("hudRemove"))
-	    table.insert(lines, '      fontSize="18" preferredWidth="220" preferredHeight="52"')
-	    table.insert(lines, '      tooltip="Remove all tokens from selected model"')
-	    table.insert(lines, '      >✕ Remove</Button>')
-	    table.insert(lines, '    <Button id="tc_hud_hide"')
-	    table.insert(lines, '      onClick="' .. g .. '/hud_toggleVisible"')
-	    table.insert(lines, '      ' .. btnStyle("hudHide"))
-	    table.insert(lines, '      fontSize="14" preferredWidth="40" preferredHeight="52"')
-	    table.insert(lines, '      tooltip="Hide HUD"')
-	    table.insert(lines, '      >_</Button>')
-	    table.insert(lines, '  </HorizontalLayout>')
-	    table.insert(lines, '</Panel>')
+	    table.insert(lines, '    </GridLayout>')
+		table.insert(lines, '  </VerticalLayout>')
+		table.insert(lines, '</Panel>') -- end tc_hud_core
 
-	    table.insert(lines, '<Button id="tc_hud_restore"')
-		table.insert(lines, '  active="' .. (not hudVisible and "True" or "False") .. '"')
+	    -- ── Minimize footer bar ──
+	    -- Spans the CORE width, sits below it
+	    table.insert(lines, '<Button id="tc_hud_minimize"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="0 10"')
-	    table.insert(lines, '  width="60" height="32"')
+	    table.insert(lines, '  offsetXY="0 2"')
+	    table.insert(lines, '  width="236" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
+	    table.insert(lines, '  ' .. btnStyle("hudHide"))
+	    table.insert(lines, '  fontSize="12"')
+	    table.insert(lines, '  tooltip="Minimise HUD"')
+	    table.insert(lines, '  >— minimise —</Button>')
+
+	    -- ── Settings button (1:1 square, bottom-left of CORE) ──
+	    table.insert(lines, '<Button id="tc_hud_settings"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-133 2"')
+	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleSettings"')
+	    table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
+	    table.insert(lines, '  fontSize="14"')
+	    table.insert(lines, '  tooltip="Settings"')
+		local ss = BTN_STYLE.settings
+		table.insert(lines, '  ><Text text="⚙" color="' .. ss.textColor .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
+
+	    -- ── HUD OFF button (appears left of settings when settings open) ──
+	    table.insert(lines, '<Button id="tc_hud_off"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-160 2"')
+	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleHUD"')
+	    table.insert(lines, '  ' .. btnStyle(hudEnabled and "settingsItem" or "danger"))
+	    table.insert(lines, '  fontSize="10"')
+	    table.insert(lines, '  tooltip="Toggle HUD on/off"')
+	    local si = BTN_STYLE[hudEnabled and "settingsItem" or "danger"]
+		table.insert(lines, '  ><Text text="' .. (hudEnabled and "HUD" or "OFF") .. '" color="' .. si.textColor .. '" fontSize="8" width="26" height="26" alignment="MiddleCenter" /></Button>')
+
+	    -- ── Set Template button (independent, left of CORE) ──
+	    table.insert(lines, '<Button id="tc_hud_setTemplate"')
+	    table.insert(lines, '  active="' .. (hideSetTemplate and "False" or "True") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-200 145"')
+	    table.insert(lines, '  width="160" height="40"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_setTemplate"')
+	    table.insert(lines, '  ' .. btnStyle("template"))
+	    table.insert(lines, '  fontSize="14"')
+	    table.insert(lines, '  tooltip="Set token template from selected object"')
+	    local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
+	    local tcLabel = templateJSON and tcShort or "No Template"
+	    table.insert(lines, '  >' .. tcLabel .. '</Button>')
+
+	    -- ── Settings flyout panel (Remove / Clear / Edit History) ──
+	    table.insert(lines, '<Panel id="tc_hud_settingsPanel"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  showAnimation="Grow"')
+	    table.insert(lines, '  hideAnimation="Shrink"')
+	    table.insert(lines, '  animationDuration="0.1"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-180 75"')
+	    table.insert(lines, '  width="120" height="70"')
+	    table.insert(lines, '  color="#1A1A1A00">') -- used to have CC at the end
+	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter">')
+	    -- Remove Tokens
+	    table.insert(lines, '    <Button onClick="' .. g .. '/hud_removeTokens"')
+	    table.insert(lines, '      ' .. btnStyle("hudRemove"))
+	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
+	    table.insert(lines, '      tooltip="Remove all tokens from selected model"')
+	    table.insert(lines, '      >Remove Tokens</Button>')
+	    -- Clear History
+	    table.insert(lines, '    <Button onClick="' .. g .. '/btn_clearHistory"')
+	    table.insert(lines, '      ' .. btnStyle("danger"))
+	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
+	    table.insert(lines, '      tooltip="Clear all token history and reset template"')
+	    table.insert(lines, '      >X Clear History</Button>')
+	    -- Edit History
+	    table.insert(lines, '    <Button onClick="' .. g .. '/btn_toggleHistoryEdit"')
+	    table.insert(lines, '      ' .. btnStyle(historyEditMode and "danger" or "settingsItem"))
+	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
+	    table.insert(lines, '      tooltip="Toggle delete mode on history slots"')
+	    table.insert(lines, '      >' .. (historyEditMode and "Delete →" or "Edit History") .. '</Button>')
+	    table.insert(lines, '  </VerticalLayout>')
+	    table.insert(lines, '</Panel>') -- end tc_hud_settingsPanel
+
+	    -- ── Restore-Token(s) position button ──
+	    table.insert(lines, '<Button id="tc_hud_restore_tokens"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-190 2"')
+	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_restoreTokens"')
+	    table.insert(lines, '  ' .. btnStyle("settingsItem"))
+	    table.insert(lines, '  fontSize="10"')
+	    table.insert(lines, '  tooltip="Restore tokens after save/load if any are missing"')
+	    table.insert(lines, '  >↺</Button>')
+
+	    -- ── Template visibility toggle ──
+	    table.insert(lines, '<Button id="tc_hud_templateVis"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-133 145"')
+	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleSetTemplate"')
+	    table.insert(lines, '  ' .. btnStyle(hideSetTemplate and "danger" or "settingsItem"))
+	    table.insert(lines, '  fontSize="11"')
+	    table.insert(lines, '  tooltip="Show or hide the Set Template button"')
+	    local tvStyle = BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"]
+		table.insert(lines, '  ><Text text="' .. (hideSetTemplate and "0" or "1") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
+
+	    -- ── Minimised-restore button ──
+	    table.insert(lines, '<Button id="tc_hud_restore"')
+	    table.insert(lines, '  active="' .. (not hudVisible and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="0 2"')
+	    table.insert(lines, '  width="120" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
 	    table.insert(lines, '  ' .. btnStyle("hudAdd"))
-	    table.insert(lines, '  fontSize="14"')
+	    table.insert(lines, '  fontSize="12"')
 	    table.insert(lines, '  tooltip="Show Token Controller HUD"')
 	    table.insert(lines, '  >Token Applier</Button>')
 
@@ -956,8 +1114,16 @@
 			local hudXml = buildHUDXml(guid)
 			local existing = UI.getXml() or ""
 			existing = existing:gsub("%s+$", "")
-			existing = stripBetween(existing, '<Panel id="tc_hud_main"', '</Panel>')
-			existing = stripBetween(existing, '<Button id="tc_hud_restore"', '</Button>')
+			-- Only strip elements that need content rebuilds
+			existing = stripBetween(existing, '<Panel id="tc_hud_core"',          '</Panel>')
+			existing = stripBetween(existing, '<Button id="tc_hud_minimize"',     '</Button>')
+			existing = stripBetween(existing, '<Button id="tc_hud_settings"',     '</Button>')
+			existing = stripBetween(existing, '<Button id="tc_hud_off"',          '</Button>')
+			existing = stripBetween(existing, '<Button id="tc_hud_setTemplate"',  '</Button>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_settingsPanel"', '</Panel>')
+			existing = stripBetween(existing, '<Button id="tc_hud_restore_tokens"','</Button>')
+			existing = stripBetween(existing, '<Button id="tc_hud_templateVis"',  '</Button>')
+			existing = stripBetween(existing, '<Button id="tc_hud_restore"',      '</Button>')
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
 		end, 0.1)
