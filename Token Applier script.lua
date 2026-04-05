@@ -43,6 +43,7 @@
 	local dynPanelVisible      = false  -- tracks whether dynamic panel is currently shown
 	local historyEditMode 	= false
 	local templateCache     = { label = "Set Template\n(none)", imageURL = "", name = "" }
+	local hideSetTemplate = false
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -491,7 +492,11 @@
 		rebuildXML()
 	end
 	
-	
+	-- SetTemplate button toggle
+	function btn_toggleSetTemplate(_, _)
+		hideSetTemplate = not hideSetTemplate
+		rebuildXML()
+	end
 
 -- ──────────────────────────────────────────────────────────────
 --  DYNAMIC PANEL — show/hide helpers
@@ -662,30 +667,39 @@
 		table.insert(lines, '</Panel>')
 		
 		-- Settings panel
-	    table.insert(lines, '<Panel id="settingsPanel"')
-	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
-	    table.insert(lines, '  showAnimation="Grow"')
+		table.insert(lines, '<Panel id="settingsPanel"')
+		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+		table.insert(lines, '  showAnimation="Grow"')
 		table.insert(lines, '  hideAnimation="Shrink"')
-	    table.insert(lines, '  animationDuration="0.1"')
-	    table.insert(lines, '  position="-460 -530 -25"')
-	    table.insert(lines, '  rotation="0 0 0"')
-	    table.insert(lines, '  width="448" height="60"')
-	    table.insert(lines, '  color="#484716F2">')
-	    table.insert(lines, '  <HorizontalLayout spacing="4" padding="8 8 8 8" childAlignment="MiddleCenter">')
-	    table.insert(lines, '    <Button onClick="btn_restoreTokens" tooltip="Restore tokens after save/load if any are missing" ' .. btnStyle("settingsItem") .. ' fontSize="28" preferredWidth="130" preferredHeight="80">↺</Button>')
-	    table.insert(lines, '    <Button onClick="btn_debug" tooltip="Print current hover-token table to console" ' .. btnStyle("settingsItem") .. ' fontSize="25" preferredWidth="150" preferredHeight="80">Debug IDs</Button>')
-	    table.insert(lines, '    <Button id="hudToggleBtn"')
-	    table.insert(lines, '      onClick="btn_toggleHUD"')
-	    table.insert(lines, '      tooltip="Show or hide the on-screen HUD"')
-	    table.insert(lines, '      ' .. btnStyle(hudEnabled and "settingsItem" or "danger"))
-	    table.insert(lines, '      fontSize="22" preferredWidth="130" preferredHeight="80"')
-	    table.insert(lines, '      >' .. (hudEnabled and "HUD: ON" or "HUD: OFF") .. '</Button>')
-	    table.insert(lines, '  </HorizontalLayout>')
-	    table.insert(lines, '</Panel>')
+		table.insert(lines, '  animationDuration="0.1"')
+		table.insert(lines, '  position="-460 -530 -25"')
+		table.insert(lines, '  rotation="0 0 0"')
+		table.insert(lines, '  width="448" height="128"')
+		table.insert(lines, '  color="#484716F2">')
+		table.insert(lines, '  <VerticalLayout spacing="4" padding="8 8 8 8" childAlignment="UpperCenter">')
+		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
+		table.insert(lines, '      <Button onClick="btn_restoreTokens" tooltip="Restore tokens after save/load if any are missing" ' .. btnStyle("settingsItem") .. ' fontSize="28" preferredWidth="130" preferredHeight="50">↺</Button>')
+		table.insert(lines, '      <Button onClick="btn_debug" tooltip="Print current hover-token table to console" ' .. btnStyle("settingsItem") .. ' fontSize="25" preferredWidth="150" preferredHeight="50">Debug IDs</Button>')
+		table.insert(lines, '      <Button id="hudToggleBtn"')
+		table.insert(lines, '        onClick="btn_toggleHUD"')
+		table.insert(lines, '        tooltip="Show or hide the on-screen HUD"')
+		table.insert(lines, '        ' .. btnStyle(hudEnabled and "settingsItem" or "danger"))
+		table.insert(lines, '        fontSize="22" preferredWidth="130" preferredHeight="50"')
+		table.insert(lines, '        >' .. (hudEnabled and "HUD: ON" or "HUD: OFF") .. '</Button>')
+		table.insert(lines, '    </HorizontalLayout>')
+		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
+		table.insert(lines, '      <Button onClick="btn_toggleSetTemplate"')
+		table.insert(lines, '        tooltip="Show or hide the Set Template button"')
+		table.insert(lines, '        ' .. btnStyle(hideSetTemplate and "danger" or "settingsItem"))
+		table.insert(lines, '        fontSize="18" preferredWidth="414" preferredHeight="50"')
+		table.insert(lines, '        ><Text text="' .. (hideSetTemplate and "Template: Hidden" or "Template: Visible") .. '" color="' .. BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '    </HorizontalLayout>')
+		table.insert(lines, '  </VerticalLayout>')
+		table.insert(lines, '</Panel>')
 
-	    -- ── Add Token + Set Template ──
+	    -- ── Add Token + Set Template + size warning ──
 	    local templateLabel = templateCache.label
-
+		-- Add Token button
 	    table.insert(lines, '<Button id="addTokenBtn"')
 	    table.insert(lines, '  onClick="btn_toggleToken"')
 	    table.insert(lines, '  ' .. btnStyle("primary"))
@@ -696,8 +710,10 @@
 	    table.insert(lines, '  fontSize="60"')
 	    table.insert(lines, '  >Add Token</Button>')
 
+		-- Set Template button
 	    table.insert(lines, '<Button id="setTemplateBtn"')
-	    table.insert(lines, '  onClick="btn_setTemplate"')
+		table.insert(lines, '  active="' .. (hideSetTemplate and "False" or "True") .. '"')
+		table.insert(lines, '  onClick="btn_setTemplate"')
 	    table.insert(lines, '  ' .. btnStyle("template"))
 	    table.insert(lines, '  tooltip="Drop any object onto TC, or select an object then click to capture it as the token template"')
 	    table.insert(lines, '  position="0 -620 -25"') -- X , Y, Z
@@ -707,6 +723,7 @@
 	    local ts = BTN_STYLE.template
 		table.insert(lines, '  ><Text id="setTemplateBtn_text" text="' .. templateLabel .. '" color="' .. ts.textColor .. '" fontSize="26" /></Button>')
 		local templateLabel = templateCache.label
+		
 		-- large token warning
 		local sizeWarning   = ""
 		if templateCache.byteSize > 20000 then
