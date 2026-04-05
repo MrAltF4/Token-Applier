@@ -42,6 +42,7 @@
 	local hudEnabled           = true
 	local dynPanelVisible      = false  -- tracks whether dynamic panel is currently shown
 	local historyEditMode 	= false
+	local templateCache     = { label = "Set Template\n(none)", imageURL = "", name = "" }
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -215,6 +216,7 @@
 	    if type(data.templateScale) == "table"  then templateScale = data.templateScale end
 	    if type(data.previewGUID)   == "string" then previewGUID   = data.previewGUID   end
 	    if type(data.tokenHistory)  == "table"  then tokenHistory  = data.tokenHistory  end
+	    refreshTemplateCache()
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -288,6 +290,33 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  TEMPLATE CACHE
+-- ──────────────────────────────────────────────────────────────
+
+	function refreshTemplateCache()
+		if not templateJSON then
+			templateCache = { label = "Set Template\n(none)", imageURL = "", name = "", byteSize = 0 }
+			return
+		end
+		local byteSize = #templateJSON
+		local ok, data = pcall(JSON.decode, templateJSON)
+		if not ok or type(data) ~= "table" then
+			templateCache = { label = "Set Template\n[custom]", imageURL = "", name = "Token", byteSize = byteSize }
+			return
+		end
+		local n = (data.Nickname and data.Nickname ~= "") and data.Nickname
+			   or (data.Name    and data.Name    ~= "") and data.Name
+		local cleanName = n and stripBBCode(n) or nil
+		local imageURL  = extractImageURL(data) or ""
+		templateCache = {
+			label    = cleanName and ("Set Template\n[" .. cleanName .. "]") or "Set Template\n[custom]",
+			imageURL = imageURL,
+			name     = cleanName or "Token",
+			byteSize = byteSize,
+		}
+	end
+
+-- ──────────────────────────────────────────────────────────────
 --  TOKEN HISTORY (data layer)
 -- ──────────────────────────────────────────────────────────────
 
@@ -314,6 +343,7 @@
 	    if not entry then return end
 	    templateJSON  = entry.json
 	    templateScale = entry.scale
+	    refreshTemplateCache()
 	    saveState()
 	    refreshTemplateButton()
 	    spawnPreview()
@@ -338,6 +368,7 @@
 		if templateJSON == removing.json then
 			templateJSON  = nil
 			templateScale = nil
+			refreshTemplateCache()
 			if previewGUID then
 				local obj = getObjectFromGUID(previewGUID)
 				if obj then obj.destroy() end
@@ -460,9 +491,6 @@
 		rebuildXML()
 	end
 	
-
-
-
 	
 
 -- ──────────────────────────────────────────────────────────────
@@ -539,25 +567,9 @@
 	    local lines = {}
 
 	    -- ── Preview indicator ──
-	    local previewImage  = ""
-	    local previewText   = ""
-	    local previewActive = "False"
-	    if templateJSON then
-	        local ok, data = pcall(JSON.decode, templateJSON)
-	        if ok and type(data) == "table" then
-	            local url = extractImageURL(data)
-	            if url and url ~= "" then
-	                previewImage  = url
-	                previewActive = "True"
-	            else
-	                local n = (data.Nickname and data.Nickname ~= "") and data.Nickname
-	                       or (data.Name    and data.Name    ~= "") and data.Name
-	                       or "Token"
-	                previewText   = n
-	                previewActive = "True"
-	            end
-	        end
-	    end
+	    local previewImage  = templateCache.imageURL
+	    local previewText   = templateCache.name
+	    local previewActive = (templateJSON ~= nil) and "True" or "False"
 
 	    table.insert(lines, '<Panel id="previewPanel"')
 	    table.insert(lines,   ' active="' .. previewActive .. '"')
@@ -672,15 +684,7 @@
 	    table.insert(lines, '</Panel>')
 
 	    -- ── Add Token + Set Template ──
-	    local templateLabel = "Set Template\n(none)"
-	    if templateJSON then
-	        local ok, data = pcall(JSON.decode, templateJSON)
-	        if ok and type(data) == "table" then
-	            local n = (data.Nickname and data.Nickname ~= "") and data.Nickname
-	                   or (data.Name    and data.Name    ~= "") and data.Name
-	            templateLabel = n and ("Set Template\n[" .. stripBBCode(n) .. "]") or "Set Template\n[custom]"
-	        end
-	    end
+	    local templateLabel = templateCache.label
 
 	    table.insert(lines, '<Button id="addTokenBtn"')
 	    table.insert(lines, '  onClick="btn_toggleToken"')
@@ -701,8 +705,32 @@
 	    table.insert(lines, '  width="448" height="100"')
 	    table.insert(lines, '  fontSize="26"')
 	    local ts = BTN_STYLE.template
-		local ts = BTN_STYLE.template
 		table.insert(lines, '  ><Text id="setTemplateBtn_text" text="' .. templateLabel .. '" color="' .. ts.textColor .. '" fontSize="26" /></Button>')
+		local templateLabel = templateCache.label
+		-- large token warning
+		local sizeWarning   = ""
+		if templateCache.byteSize > 20000 then
+			sizeWarning = "\n⚠ Very large object"
+		elseif templateCache.byteSize > 5000 then
+			sizeWarning = "\n⚠ Large object"
+		end
+		templateLabel = templateLabel .. sizeWarning
+		
+		-- ── Size warning panel ──
+		if templateCache.byteSize > 5000 then
+			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
+			local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
+			table.insert(lines, '<Panel id="sizeWarningPanel"')
+			table.insert(lines, '  active="True"')
+			table.insert(lines, '  position="0 -230 -25"')
+			table.insert(lines, '  rotation="0 0 0"')
+			table.insert(lines, '  width="448" height="36"')
+			table.insert(lines, '  color="' .. warnColor .. '">')
+			table.insert(lines, '  <Text text="' .. warnText .. '" fontSize="18" color="#FFAA44" alignment="MiddleCenter" />')
+			table.insert(lines, '</Panel>')
+		else
+			table.insert(lines, '<Panel id="sizeWarningPanel" active="False" width="448" height="36" />')
+		end
 
 	    -- ── Dynamic panel ──
 	    -- Buttons are direct children of the panel, positioned with
@@ -740,7 +768,7 @@
 				.. 'rectAlignment="UpperLeft" '
 				.. 'offsetXY="' .. col(c) .. ' ' .. row(r) .. '" '
 				.. exA .. '>'
-				.. '<Text text="' .. label .. '" color="' .. s.textColor .. '" fontSize="' .. fontSize .. '" />'
+				.. '<Text text="' .. label .. '" color="' .. s.textColor .. '" fontSize="' .. fontSize .. '" width="' .. BW .. '" height="' .. BW .. '" alignment="MiddleCenter" />'
 				.. '</Button>'
 		end
 
@@ -923,18 +951,7 @@
 -- ──────────────────────────────────────────────────────────────
 
 	refreshTemplateButton = function()
-	    local label = "Set Template\n(none)"
-	    if templateJSON then
-	        local ok, data = pcall(JSON.decode, templateJSON)
-	        if ok and type(data) == "table" and data.Nickname and data.Nickname ~= "" then
-				label = "Set Template\n[" .. stripBBCode(data.Nickname) .. "]"
-			elseif ok and type(data) == "table" and data.Name then
-				label = "Set Template\n[" .. stripBBCode(data.Name) .. "]"
-	        else
-	            label = "Set Template\n[custom]"
-	        end
-	    end
-	    self.UI.setAttribute("setTemplateBtn_text", "text", label)
+	    self.UI.setAttribute("setTemplateBtn_text", "text", templateCache.label)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1129,6 +1146,7 @@
 	    local imageURL = extractImageURL(data)
 	    templateJSON  = json
 	    templateScale = scale
+	    refreshTemplateCache()
 	    addToHistory(json, scale, name, imageURL)
 	    saveState()
 	    refreshTemplateButton()
@@ -1156,6 +1174,7 @@
 	    tokenHistory  = {}
 	    templateJSON  = nil
 	    templateScale = nil
+	    refreshTemplateCache()
 	    if previewGUID then
 	        local obj = getObjectFromGUID(previewGUID)
 	        if obj then obj.destroy() end
@@ -1225,6 +1244,7 @@
 	        z = (ts and ts.scaleZ) or 1.0,
 	    }
 	    templateJSON = json
+	    refreshTemplateCache()
 	    local name     = (data.Nickname and data.Nickname ~= "") and data.Nickname
 	                     or (data.Name and data.Name ~= "") and data.Name
 	                     or "Token"
@@ -1486,10 +1506,10 @@
 	        local targetName = targetObj and targetObj.getName() or "Unknown"
 	        printToColor("Added token: " .. getTokenName(newGUID), playerColor, { 0.5, 1, 0.5 })
 	        printToColor("  to " .. targetName .. " (" .. targetGUID .. ")", playerColor, { 1, 1, 1 })
-			-- Force panel refresh
-			lastSelectedGUID = nil
-			local tokens = findTokensForTarget(targetGUID)
-			showDynamicPanel(targetGUID, #tokens)
+		-- Force panel refresh
+		lastSelectedGUID = nil
+		local tokens = findTokensForTarget(targetGUID)
+		showDynamicPanel(targetGUID, #tokens)
 	    end)
 	end
 
@@ -1702,7 +1722,7 @@
 	    for _, tGUID in ipairs(tokens) do
 	        local token = getObjectFromGUID(tGUID)
 	        local entry = hoverEntries[tGUID]
-	        if token and entry then
+		if token and entry then
 	            local s = entry.scale or { x=1.0, y=1.0, z=1.0 }
 	            token.setLock(false)
 	            pcall(function()
@@ -1749,5 +1769,13 @@
 	                (entry.imageURL and entry.imageURL ~= "") and "yes" or "no"))
 	        end
 	    end
+		if templateJSON then
+			local bytes = #templateJSON
+			local kb    = math.floor(bytes / 1024)
+			local mb    = string.format("%.2f", bytes / 1048576)
+			print(string.format("  Template size: %d bytes  (%d kb  /  %s mb)", bytes, kb, mb))
+		else
+			print("  Template size: (no template set)")
+		end
 	    print("──────────────────────────")
 	end
