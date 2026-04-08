@@ -43,7 +43,7 @@
 	local dynPanelVisible      = false  -- tracks whether dynamic panel is currently shown
 	local historyEditMode 	= false
 	local templateCache     = { label = "Set Template\n(none)", imageURL = "", name = "" }
-	local hideSetTemplate = false
+	local hideSetTemplate = true
 	local dynHideDelay = false
 	local templateIsFlippable = false
 
@@ -941,10 +941,6 @@ end
 --  GLOBAL HUD INJECTION
 -- ──────────────────────────────────────────────────────────────
 
-	-- ──────────────────────────────────────────────────────────────
---  GLOBAL HUD INJECTION
--- ──────────────────────────────────────────────────────────────
-
 	local function buildHUDXml(guid)
 	    local lines = {}
 	    local g = guid
@@ -1051,12 +1047,12 @@ end
 	    local si = BTN_STYLE[hudEnabled and "settingsItem" or "danger"]
 		table.insert(lines, '  ><Text text="' .. (hudEnabled and "HUD" or "OFF") .. '" color="' .. si.textColor .. '" fontSize="8" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
-	    -- ── Set Template button (independent, left of CORE) ──
+	    -- ── Set Template button (independent) ──
 	    table.insert(lines, '<Button id="tc_hud_setTemplate"')
 	    table.insert(lines, '  active="' .. (hideSetTemplate and "False" or "True") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-200 145"')
-	    table.insert(lines, '  width="160" height="40"')
+	    table.insert(lines, '  offsetXY="0 190"')  -- old loaction offsetXY="-200 145"'
+	    table.insert(lines, '  width="160" height="30"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_setTemplate"')
 	    table.insert(lines, '  ' .. btnStyle("template"))
 	    table.insert(lines, '  fontSize="14"')
@@ -1109,18 +1105,18 @@ end
 	    table.insert(lines, '  tooltip="Restore tokens after save/load if any are missing"')
 	    table.insert(lines, '  >↺</Button>')
 
-	    -- ── Template visibility toggle ──
+	    -- ── Set Template button visibility toggle ──
 	    table.insert(lines, '<Button id="tc_hud_templateVis"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-133 145"')
-	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  offsetXY="-50 190"')
+	    table.insert(lines, '  width="30" height="30"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleSetTemplate"')
 	    table.insert(lines, '  ' .. btnStyle(hideSetTemplate and "danger" or "settingsItem"))
 	    table.insert(lines, '  fontSize="11"')
 	    table.insert(lines, '  tooltip="Show or hide the Set Template button"')
 	    local tvStyle = BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"]
-		table.insert(lines, '  ><Text text="' .. (hideSetTemplate and "0" or "1") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  ><Text text="' .. (hideSetTemplate and "O" or "I") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
 	    -- ── Minimised-restore button ──
 	    table.insert(lines, '<Button id="tc_hud_restore"')
