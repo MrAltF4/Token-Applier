@@ -44,6 +44,7 @@
 	local historyEditMode 	= false
 	local templateCache     = { label = "Set Template\n(none)", imageURL = "", name = "" }
 	local hideSetTemplate = false
+	local dynHideDelay = false
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -340,18 +341,30 @@
 	end
 
 	local function activateHistoryEntry(index)
-	    local entry = tokenHistory[index]
-	    if not entry then return end
-	    templateJSON  = entry.json
-	    templateScale = entry.scale
-	    refreshTemplateCache()
-	    saveState()
-	    refreshTemplateButton()
-	    spawnPreview()
-	    rebuildXML()
-	    rebuildHUD()
-	end
-
+		local entry = tokenHistory[index]
+		if not entry then return end
+		templateJSON  = entry.json
+		templateScale = entry.scale
+		refreshTemplateCache()
+		saveState()
+		refreshTemplateButton()
+		spawnPreview()
+		rebuildXML()
+		rebuildHUD()
+		-- Restore dynamic panel if a model with tokens is still selected
+		Wait.time(function()
+		if dynPanelVisible then
+			local guid = lastSelectedGUID
+			if guid then
+				local tokens = findTokensForTarget(guid)
+				if #tokens > 0 then
+					lastSelectedGUID = nil
+					showDynamicPanel(guid, #tokens)
+				end
+			end
+		end
+	end, 0.2)
+end
 -- ──────────────────────────────────────────────────────────────
 --  HISTORY EDIT OVERLAY
 -- ──────────────────────────────────────────────────────────────
@@ -469,6 +482,7 @@
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_templateVis")
+			UI.hide("tc_hud_dynPanel")
 			settingsOpen = false
 			UI.show("tc_hud_restore")
 		end
@@ -549,63 +563,80 @@
 	-- Hides the dynamic panel and resets selection state.
 	-- Replaces clearAllDynamicButtons().
 	function hideDynamicPanel()
-	    if not dynPanelVisible then return end
-	    self.UI.hide("dynamicPanel")
-	    dynPanelVisible    = false
-	    lastSelectedGUID   = nil
-	    selectedTokenGUID  = nil
+		if not dynPanelVisible then return end
+		self.UI.hide("dynamicPanel")
+		UI.hide("tc_hud_dynPanel")
+		dynPanelVisible   = false
+		lastSelectedGUID  = nil
+		selectedTokenGUID = nil
 	end
 
 	-- Shows the dynamic panel populated for the given target model.
 	-- Replaces showDynamicButtons().
 	function showDynamicPanel(targetGUID, tokenCount)
-	    -- Guard: skip rebuild if same target and count hasn't changed
-	    if lastSelectedGUID == targetGUID then return end
+		if lastSelectedGUID == targetGUID then return end
 
-	    local tokens = findTokensForTarget(targetGUID)
-	    local count  = math.min(tokenCount, MAX_TOKENS)
+		local tokens = findTokensForTarget(targetGUID)
+		local count  = math.min(tokenCount, MAX_TOKENS)
 
-	    -- Spread buttons: only visible when 2+ tokens
-	    local showSpread = tokenCount >= 2
-	    self.UI.setAttribute("dynSpreadUp",   "active", showSpread and "True" or "False")
-	    self.UI.setAttribute("dynSpreadDown", "active", showSpread and "True" or "False")
+		local showSpread = tokenCount >= 2
+		self.UI.setAttribute("dynSpreadUp",          "active", showSpread and "True" or "False")
+		self.UI.setAttribute("dynSpreadDown",        "active", showSpread and "True" or "False")
+		UI.setAttribute("tc_hud_dynSpreadUp",        "active", showSpread and "True" or "False")
+		UI.setAttribute("tc_hud_dynSpreadDown",      "active", showSpread and "True" or "False")
 
-	    -- Populate token slots
-	    for i = 1, MAX_TOKENS do
-	        local slotActive = (i <= count)
-	        local tGUID      = tokens[i]
-	        local slotId     = "dynSlot_" .. i
+		for i = 1, MAX_TOKENS do
+			local slotActive = (i <= count)
+			local tGUID      = tokens[i]
+			local slotId     = "dynSlot_" .. i
+			local hudSlotId  = "tc_hud_dynSlot_" .. i
 
-	        self.UI.setAttribute(slotId,              "active", slotActive and "True" or "False")
-	        self.UI.setAttribute("dynRemove_" .. i,   "active", slotActive and "True" or "False")
+			self.UI.setAttribute(slotId,             "active", slotActive and "True" or "False")
+			self.UI.setAttribute("dynRemove_" .. i,  "active", slotActive and "True" or "False")
+			UI.setAttribute(hudSlotId,               "active", slotActive and "True" or "False")
+			UI.setAttribute("tc_hud_dynRemove_" .. i,"active", slotActive and "True" or "False")
 
-	        if slotActive and tGUID then
-	            local name       = getTokenName(tGUID)
-	            local isSelected = (selectedTokenGUID == tGUID)
-	            self.UI.setAttribute(slotId, "text",      shortName(stripBBCode(name), 35, 2))
-	            self.UI.setAttribute(slotId, "colors",    BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
-	            self.UI.setAttribute(slotId, "textColor", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].textColor)
-	            self.setVar("removeSlot_" .. i, tGUID)
-	            self.setVar("selectSlot_" .. i, tGUID)
-	        end
-	    end
+			if slotActive and tGUID then
+				local name       = getTokenName(tGUID)
+				local isSelected = (selectedTokenGUID == tGUID)
+				local slotStyle  = isSelected and "dynSlotSelected" or "dynSlot"
+				local label      = shortName(stripBBCode(name), 35, 2)
+				local hudLabel   = shortName(stripBBCode(name), 14, 2)
 
-	    self.UI.show("dynamicPanel")
-	    dynPanelVisible  = true
-	    lastSelectedGUID = targetGUID
+				self.UI.setAttribute(slotId, "text",      label)
+				self.UI.setAttribute(slotId, "colors",    BTN_STYLE[slotStyle].colors)
+				self.UI.setAttribute(slotId, "textColor", BTN_STYLE[slotStyle].textColor)
+
+				UI.setAttribute(hudSlotId, "text",      hudLabel)
+				UI.setAttribute(hudSlotId, "colors",    BTN_STYLE[slotStyle].colors)
+				UI.setAttribute(hudSlotId, "textColor", BTN_STYLE[slotStyle].textColor)
+
+				self.setVar("removeSlot_" .. i, tGUID)
+				self.setVar("selectSlot_" .. i, tGUID)
+			end
+		end
+
+		self.UI.show("dynamicPanel")
+		UI.show("tc_hud_dynPanel")
+		dynPanelVisible  = true
+		lastSelectedGUID = targetGUID
 	end
 
 	-- Refreshes slot highlight states after a select/deselect.
 	-- Replaces the self.editButton loop in handleSelectToken.
 	local function refreshSlotHighlights()
-	    local tokens = lastSelectedGUID and findTokensForTarget(lastSelectedGUID) or {}
-	    for i, tGUID in ipairs(tokens) do
-	        if i > MAX_TOKENS then break end
-	        local isSelected = (selectedTokenGUID == tGUID)
-	        local slotId     = "dynSlot_" .. i
-	        self.UI.setAttribute(slotId, "colors",    BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].colors)
-	        self.UI.setAttribute(slotId, "textColor", BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"].textColor)
-	    end
+		local tokens = lastSelectedGUID and findTokensForTarget(lastSelectedGUID) or {}
+		for i, tGUID in ipairs(tokens) do
+			if i > MAX_TOKENS then break end
+			local isSelected = (selectedTokenGUID == tGUID)
+			local slotStyle  = isSelected and "dynSlotSelected" or "dynSlot"
+			local slotId     = "dynSlot_" .. i
+			local hudSlotId  = "tc_hud_dynSlot_" .. i
+			self.UI.setAttribute(slotId,    "colors",    BTN_STYLE[slotStyle].colors)
+			self.UI.setAttribute(slotId,    "textColor", BTN_STYLE[slotStyle].textColor)
+			UI.setAttribute(hudSlotId,      "colors",    BTN_STYLE[slotStyle].colors)
+			UI.setAttribute(hudSlotId,      "textColor", BTN_STYLE[slotStyle].textColor)
+		end
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1094,6 +1125,102 @@
 	    table.insert(lines, '  tooltip="Show Token Controller HUD"')
 	    table.insert(lines, '  >Token Applier</Button>')
 
+	-- ── HUD Dynamic panel ──
+		local HPAD  = 8
+		local HBW   = 40    -- mod button size (square)
+		local HGAP  = 4
+		local HSTEP = HBW + HGAP  -- 44 — used for mod grid layout only
+
+		local HSH   = 24    -- slot button height (independent from mod buttons)
+		local HSW   = 200   -- slot button width
+		local HRW   = HBW   -- remove button width (stays square, matches mod buttons)
+		local HSGAP = 4     -- slot vertical gap
+
+		local function hcol(c) return HPAD + c * HSTEP end
+		local function hrow(r) return -(HPAD + r * HSTEP) end
+
+		local function hmbtn(id, onClick, tooltip, style, fontSize, label, c, r, extra)
+			local idA = id and ('id="' .. id .. '" ') or ""
+			local exA = extra or ""
+			local s   = BTN_STYLE[style] or BTN_STYLE.ghost
+			return '  <Button ' .. idA
+				.. 'onClick="' .. g .. '/' .. onClick .. '" '
+				.. 'tooltip="' .. tooltip .. '" '
+				.. btnStyle(style) .. ' '
+				.. 'width="' .. HBW .. '" height="' .. HBW .. '" '
+				.. 'fontSize="' .. fontSize .. '" '
+				.. 'rectAlignment="UpperLeft" '
+				.. 'offsetXY="' .. hcol(c) .. ' ' .. hrow(r) .. '" '
+				.. exA .. '>'
+				.. '<Text text="' .. label .. '" color="' .. s.textColor .. '" fontSize="' .. fontSize .. '" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+				.. '</Button>'
+		end
+
+		-- Total mod grid width: 4 cols = 4*44 = 176, plus padding
+		-- Total slot section width: HSW + HGAP + HRW + HPAD = 160+4+40+8 = 212
+		-- Panel width: HPAD + 176 + HGAP + 212 = 404
+		-- Panel height: 6 slots * (HBW+HGAP) = 6*44 = 264, plus padding = 280
+		-- Centre mod grid (3 rows) against slot list (6 rows)
+		local modGridH  = HPAD + (3 * HSTEP) + HPAD
+		local slotListH = HPAD + (MAX_TOKENS * (HSH + HSGAP)) + HPAD
+		local HDYN_H    = math.max(modGridH, slotListH)
+		local HDYN_W = HPAD + (4 * HSTEP) + HGAP + HSW + HGAP + HRW + HPAD
+		local centerOffset = math.floor((slotListH - modGridH) / 2) -- Vertical centre offset: mod grid is 3 rows tall, slots up to 6
+
+		table.insert(lines, '<Panel id="tc_hud_dynPanel"')
+		table.insert(lines, '  showAnimation="Grow"')
+		table.insert(lines, '  hideAnimation="Shrink"')
+		table.insert(lines, '  animationDuration="0.1"')
+		table.insert(lines, '  active="False"')
+		table.insert(lines, '  rectAlignment="LowerCenter"')
+		table.insert(lines, '  offsetXY="' .. (116 + HDYN_W/2) .. ' 0"')
+		table.insert(lines, '  width="' .. HDYN_W .. '" height="' .. HDYN_H .. '"')
+		table.insert(lines, '  color="#00000000">')
+
+		-- Mod grid — rows 0-2, cols 0-3
+		-- Row 0: [  ] [•] [Flip] [↕]
+		table.insert(lines, hmbtn(nil,                  "btn_scaleUp",   "Scale up",        "dynGreenBtn", "18", "•",    1, 0))
+		table.insert(lines, hmbtn(nil,                  "btn_flip",      "Flip token",      "dynMod",      "16", "Flip", 2, 0))
+		table.insert(lines, hmbtn(nil,                  "btn_vertical",  "Toggle vertical", "dynMod",      "18", "↕",    3, 0))
+		-- Row 1: [⁘] [▲] [▼] [⁛]
+		table.insert(lines, hmbtn("tc_hud_dynSpreadDown","btn_radiusDown","Decrease spread", "dynRedBtn",   "18", "⁘",    0, 1, 'active="False"'))
+		table.insert(lines, hmbtn(nil,                  "btn_heightUp",  "Raise height",    "dynMod",      "18", "▲",    1, 1))
+		table.insert(lines, hmbtn(nil,                  "btn_heightDown","Lower height",     "dynMod",      "18", "▼",    2, 1))
+		table.insert(lines, hmbtn("tc_hud_dynSpreadUp", "btn_radiusUp",  "Increase spread", "dynGreenBtn", "18", "⁛",    3, 1, 'active="False"'))
+		-- Row 2: [  ] [·] [↻] [  ]
+		table.insert(lines, hmbtn(nil,                  "btn_scaleDown", "Scale down",      "dynRedBtn",   "18", "·",    1, 2))
+		table.insert(lines, hmbtn(nil,                  "btn_rotate",    "Rotate 180°",     "dynMod",      "18", "↻",    2, 2))
+
+		-- Slot section — to the right of mod grid
+		local slotX = HPAD + (4 * HSTEP) + HGAP
+		
+
+		for i = 1, MAX_TOKENS do
+			local yOffset = -(HPAD + (i - 1) * (HSH + HSGAP))
+			-- Name button
+			table.insert(lines, '  <Button id="tc_hud_dynSlot_' .. i .. '"')
+			table.insert(lines, '    onClick="' .. g .. '/btn_select_' .. i .. '"')
+			table.insert(lines, '    ' .. btnStyle("dynSlot"))
+			table.insert(lines, '    active="False"')
+			table.insert(lines, '    tooltip="Click to select token"')
+			table.insert(lines, '    width="' .. HSW .. '" height="' .. HSH .. '"')
+			table.insert(lines, '    rectAlignment="UpperLeft"')
+			table.insert(lines, '    offsetXY="' .. slotX .. ' ' .. yOffset .. '"')
+			table.insert(lines, '    fontSize="14">–</Button>')
+			-- Remove button
+			table.insert(lines, '  <Button id="tc_hud_dynRemove_' .. i .. '"')
+			table.insert(lines, '    onClick="' .. g .. '/btn_remove_' .. i .. '"')
+			table.insert(lines, '    ' .. btnStyle("dynRemove"))
+			table.insert(lines, '    active="False"')
+			table.insert(lines, '    tooltip="Remove token"')
+			table.insert(lines, '    width="' .. HRW .. '" height="' .. HSH .. '"')
+			table.insert(lines, '    rectAlignment="UpperLeft"')
+			table.insert(lines, '    offsetXY="' .. (slotX + HSW + HGAP) .. ' ' .. yOffset .. '"')
+			table.insert(lines, '    fontSize="18"><Text text="✕" color="#FFFFFF" width="' .. HRW .. '" height="' .. HBW .. '" alignment="MiddleCenter" /></Button>')
+		end
+
+		table.insert(lines, '</Panel>') -- end tc_hud_dynPanel
+
 	    return table.concat(lines, "\n")
 	end
 
@@ -1124,6 +1251,7 @@
 			existing = stripBetween(existing, '<Button id="tc_hud_restore_tokens"','</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_templateVis"',  '</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_restore"',      '</Button>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"', '</Panel>')
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
 		end, 0.1)
@@ -1197,37 +1325,47 @@
 --  SELECTION POLLING LOOP
 -- ──────────────────────────────────────────────────────────────
 
+	local dynHideDelay = false
+
 	function startSelectionLoop()
-	    if selectionLoopRunning then return end
-	    selectionLoopRunning = true
-	    local function getSelection()
-	        local colours = { "Red","Blue","White","Green","Yellow","Orange","Purple","Pink","Teal" }
-	        for _, colour in ipairs(colours) do
-	            local ok, sel = pcall(function()
-	                local p = Player[colour]
-	                if p and p.seated then return p.getSelectedObjects() end
-	                return {}
-	            end)
-	            if ok and sel and #sel > 0 then return sel end
-	        end
-	        return {}
-	    end
-	    local function poll()
-	        local sel = getSelection()
-	        if #sel > 0 then
-	            local guid   = sel[1].getGUID()
-	            local tokens = findTokensForTarget(guid)
-	            if #tokens > 0 then
-	                showDynamicPanel(guid, #tokens)
-	            else
-	                if dynPanelVisible then hideDynamicPanel() end
-	            end
-	        else
-	            if dynPanelVisible then hideDynamicPanel() end
-	        end
-	        Wait.time(poll, 0.3)
-	    end
-	    Wait.time(poll, 0.3)
+		if selectionLoopRunning then return end
+		selectionLoopRunning = true
+		local function getSelection()
+			local colours = { "Red","Blue","White","Green","Yellow","Orange","Purple","Pink","Teal" }
+			for _, colour in ipairs(colours) do
+				local ok, sel = pcall(function()
+					local p = Player[colour]
+					if p and p.seated then return p.getSelectedObjects() end
+					return {}
+				end)
+				if ok and sel and #sel > 0 then return sel end
+			end
+			return {}
+		end
+		local function poll()
+			local sel = getSelection()
+			if #sel > 0 then
+				dynHideDelay = false
+				local guid   = sel[1].getGUID()
+				local tokens = findTokensForTarget(guid)
+				if #tokens > 0 then
+					showDynamicPanel(guid, #tokens)
+				else
+					if dynPanelVisible then hideDynamicPanel() end
+				end
+			else
+				if dynPanelVisible then
+					if dynHideDelay then
+						hideDynamicPanel()
+						dynHideDelay = false
+					else
+						dynHideDelay = true
+					end
+				end
+			end
+			Wait.time(poll, 0.3)
+		end
+		Wait.time(poll, 0.3)
 	end
 
 -- ──────────────────────────────────────────────────────────────
