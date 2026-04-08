@@ -45,6 +45,7 @@
 	local templateCache     = { label = "Set Template\n(none)", imageURL = "", name = "" }
 	local hideSetTemplate = false
 	local dynHideDelay = false
+	local templateIsFlippable = false
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -291,6 +292,12 @@
 		return name:gsub("%[/?[%a][%a0-9]*%]", "")
 	end
 
+	local function isFlippableType(data)
+		if type(data) ~= "table" then return false end
+		return data.Name == "Custom_Tile"
+	end
+
+
 -- ──────────────────────────────────────────────────────────────
 --  TEMPLATE CACHE
 -- ──────────────────────────────────────────────────────────────
@@ -300,6 +307,8 @@
 			templateCache = { label = "Set Template\n(none)", imageURL = "", name = "", byteSize = 0 }
 			return
 		end
+		local ok2, data2 = pcall(JSON.decode, templateJSON)
+			templateIsFlippable = (ok2 and isFlippableType(data2)) or false
 		local byteSize = #templateJSON
 		local ok, data = pcall(JSON.decode, templateJSON)
 		if not ok or type(data) ~= "table" then
@@ -1369,6 +1378,24 @@ end
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  INJECTION (right-click-flip)
+-- ──────────────────────────────────────────────────────────────
+
+	local function injectContextMenu(token)
+		token.addContextMenuItem("Flip", function(playerColor)
+			local entry = hoverEntries[token.getGUID()]
+			token.setLock(false)
+			local rot = token.getRotation()
+			local newX = (math.abs(rot.x - 180) < 5) and 0 or 180
+			token.setRotation({ newX, rot.y, rot.z })
+			if entry then entry.flipped = (newX == 180) end
+			token.setLock(true)
+			saveState()
+		end)
+	end
+
+
+-- ──────────────────────────────────────────────────────────────
 --  TEMPLATE PREVIEW
 -- ──────────────────────────────────────────────────────────────
 
@@ -1781,6 +1808,7 @@ end
 	                    local c = token.getColorTint()
 	                    token.setColorTint({ r=c.r, g=c.g, b=c.b, a=spawnAlpha })
 	                end)
+					if templateIsFlippable then injectContextMenu(token) end
 	                if callback then callback(token) end
 	            end
 	        end,
@@ -1989,6 +2017,7 @@ end
 	            spawnTemplateAt(pos, r.entry.scale, r.entry.flipped, r.entry.rotated, function(newToken)
 	                if newToken then
 	                    newToken.setLock(true)
+						if templateIsFlippable then injectContextMenu(newToken) end
 	                    local newGUID = newToken.getGUID()
 	                    hoverEntries[newGUID] = {
 	                        targetGUID = r.entry.targetGUID,
