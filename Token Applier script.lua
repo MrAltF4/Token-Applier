@@ -32,20 +32,22 @@
 	local PREVIEW_HEIGHT    = 1.0
 	local lastSelectedGUID  = nil
 	local selectedTokenGUID = nil
-	local followLoopRunning    = false
-	local selectionLoopRunning = false
-	local tokenHistory         = {}
-	local collisionCooldown    = false
-	local heldModels           = {}
-	local settingsOpen         = false
-	local hudVisible           = true
-	local hudEnabled           = true
-	local dynPanelVisible      = false  -- tracks whether dynamic panel is currently shown
-	local historyEditMode 	= false
-	local templateCache     = { label = "Set Template\n(none)", imageURL = "", name = "" }
-	local hideSetTemplate = true
-	local dynHideDelay = false
-	local templateIsFlippable = false
+	local followLoopRunning     = false
+	local selectionLoopRunning  = false
+	local tokenHistory          = {}
+	local collisionCooldown     = false
+	local heldModels            = {}
+	local settingsOpen          = false
+	local hudVisible            = true
+	local hudEnabled            = true
+	local dynPanelVisible       = false  -- tracks whether dynamic panel is currently shown
+	local historyEditMode 		= false
+	local templateCache     	= { label = "Set Template\n(none)", imageURL = "", name = "" }
+	local hideSetTemplate 		= true
+	local dynHideDelay 			= false
+	local templateIsFlippable 	= false
+	local modelLineUp     		= {}   -- [targetGUID] = "radial"|"line"
+	local modelLineOffset 		= {}   -- [targetGUID] = number (world Z offset)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -192,6 +194,8 @@
 	    local blob = {
 	        hoverEntries  = hoverEntries,
 	        modelRadius   = modelRadius,
+			modelLineUp       = modelLineUp,       
+			modelLineOffset   = modelLineOffset,  
 	        templateJSON  = templateJSON,
 	        templateScale = templateScale,
 	        previewGUID   = previewGUID,
@@ -215,6 +219,8 @@
 	        end
 	    end
 	    if type(data.modelRadius)   == "table"  then modelRadius   = data.modelRadius   end
+		if type(data.modelLineUp)     == "table" then modelLineUp     = data.modelLineUp     end
+		if type(data.modelLineOffset) == "table" then modelLineOffset = data.modelLineOffset end
 	    if type(data.templateJSON)  == "string" then templateJSON  = data.templateJSON  end
 	    if type(data.templateScale) == "table"  then templateScale = data.templateScale end
 	    if type(data.previewGUID)   == "string" then previewGUID   = data.previewGUID   end
@@ -874,6 +880,8 @@ end
 		end
 
 	    local SW = 300   -- slot name button width
+		local DBLGAP  = (GAP * 2) + 5
+		local function col4() return PAD + 3 * STEP + DBLGAP + BW + DBLGAP end
 	    local RW = BW    -- remove button width
 
 	    table.insert(lines, '<Panel id="dynamicPanel"')
@@ -883,10 +891,11 @@ end
 	    table.insert(lines, '  active="False"')
 	    table.insert(lines, '  position="440 -395 -25"')  -- X , Y, Z(no change needed)
 	    table.insert(lines, '  rotation="0 0 0"')
-	    table.insert(lines, '  width="400" height="700"')    -- orginal width="310"
+	    table.insert(lines, '  width="' .. (PAD + 3*STEP + DBLGAP + BW + DBLGAP + BW + PAD) .. '" height="700"')
 	    table.insert(lines, '  color="#00000000">')
 
-	    -- Row 0: [spacer] [•] [Flip] [↕]
+	    -- Row 0: [lineForward] [•] [Flip] [↕]
+		table.insert(lines, mbtn(nil,             "btn_lineForward",  "Move tokens forward (Z axis)",               "dynMod",        "30", "↑",    0, 0))
 	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynGreenBtn",   "30", "•",    1, 0))
 	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "30", "Flip", 2, 0))
 	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "30", "↕",    3, 0))
@@ -897,10 +906,27 @@ end
 	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "30", "▼",    2, 1))
 	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynGreenBtn",  "30", "⁛",    3, 1, 'active="False"'))
 
-	    -- Row 2: [spacer] [·] [↻] [spacer]
+	    -- Row 2: [lineBackward] [·] [↻] [spacer]
+		table.insert(lines, mbtn(nil,             "btn_lineBackward", "Move tokens backward (Z axis)",              "dynMod",        "30", "↓",    0, 2))
 	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynRedBtn", "30", "·",    1, 2))
 	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "30", "↻",    2, 2))
 
+		-- Col 4 (double-gapped): LineUp toggle
+		local isLineUp = modelLineUp[lastSelectedGUID or ""] or false
+		local s = BTN_STYLE[isLineUp and "active" or "danger"]
+		table.insert(lines, '  <Button id="dynLineUpToggle"'
+			.. ' onClick="btn_toggleModelLineUp"'
+			.. ' tooltip="Toggle line-up mode"'
+			.. ' colors="' .. s.colors .. '"'
+			.. ' textColor="' .. s.textColor .. '"'
+			.. ' transition="' .. s.transition .. '"'
+			.. ' width="' .. BW .. '" height="' .. BW .. '"'
+			.. ' fontSize="30"'
+			.. ' rectAlignment="UpperLeft"'
+			.. ' offsetXY="' .. col4() .. ' ' .. row(0) .. '">'
+			.. '<Text id="dynLineUpToggle_text" text="⋯" color="' .. s.textColor .. '" fontSize="22" width="' .. BW .. '" height="' .. BW .. '" alignment="MiddleCenter" />'
+			.. '</Button>')
+			
 	    -- Token slots — below modifier grid with extra gap
 	    local slotStartRow = 3
 	    local slotExtraGap = 8
@@ -1166,7 +1192,7 @@ end
 		-- Panel width: HPAD + 176 + HGAP + 212 = 404
 		-- Panel height: 6 slots * (HBW+HGAP) = 6*44 = 264, plus padding = 280
 		-- Centre mod grid (3 rows) against slot list (6 rows)
-		local modGridH  = HPAD + (3 * HSTEP) + HPAD
+		local modGridH  = HPAD + (3 * HSTEP) + (HGAP * 2) + HSTEP + HPAD
 		local slotListH = HPAD + (MAX_TOKENS * (HSH + HSGAP)) + HPAD
 		local HDYN_H    = math.max(modGridH, slotListH)
 		local HDYN_W = HPAD + (4 * HSTEP) + HGAP + HSW + HGAP + HRW + HPAD
@@ -1183,8 +1209,9 @@ end
 		table.insert(lines, '  color="#00000000">')
 
 		-- Mod grid — rows 0-2, cols 0-3
-		-- Row 0: [  ] [•] [Flip] [↕]
-		table.insert(lines, hmbtn(nil,                  "btn_scaleUp",   "Scale up",        "dynGreenBtn", "18", "•",    1, 0))
+		-- Row 0: [lineForward] [•] [Flip] [↕]
+		table.insert(lines, hmbtn(nil,                  "btn_lineForward",  "Move forward (Z)", "dynMod",      "18", "↑",    0, 0))
+		table.insert(lines, hmbtn(nil,                  "btn_scaleUp",      "Scale up",         "dynGreenBtn", "18", "•",    1, 0))
 		table.insert(lines, hmbtn(nil,                  "btn_flip",      "Flip token",      "dynMod",      "16", "Flip", 2, 0))
 		table.insert(lines, hmbtn(nil,                  "btn_vertical",  "Toggle vertical", "dynMod",      "18", "↕",    3, 0))
 		-- Row 1: [⁘] [▲] [▼] [⁛]
@@ -1192,9 +1219,25 @@ end
 		table.insert(lines, hmbtn(nil,                  "btn_heightUp",  "Raise height",    "dynMod",      "18", "▲",    1, 1))
 		table.insert(lines, hmbtn(nil,                  "btn_heightDown","Lower height",     "dynMod",      "18", "▼",    2, 1))
 		table.insert(lines, hmbtn("tc_hud_dynSpreadUp", "btn_radiusUp",  "Increase spread", "dynGreenBtn", "18", "⁛",    3, 1, 'active="False"'))
-		-- Row 2: [  ] [·] [↻] [  ]
-		table.insert(lines, hmbtn(nil,                  "btn_scaleDown", "Scale down",      "dynRedBtn",   "18", "·",    1, 2))
-		table.insert(lines, hmbtn(nil,                  "btn_rotate",    "Rotate 180°",     "dynMod",      "18", "↻",    2, 2))
+		-- Row 2: [lineBackward] [·] [↻] [  ]
+		table.insert(lines, hmbtn(nil,                  "btn_lineBackward", "Move backward (Z)", "dynMod",    "18", "↓",    0, 2))
+		table.insert(lines, hmbtn(nil,                  "btn_scaleDown",    "Scale down",        "dynRedBtn", "18", "·",    1, 2))
+		table.insert(lines, hmbtn(nil,                  "btn_rotate",       "Rotate 180°",       "dynMod",    "18", "↻",    2, 2))
+
+		-- Row 3 (double-gapped): LineUp toggle
+		local HDBLGAP   = HGAP * 2
+		local hRow3Y    = -(HPAD + 3 * HSTEP + HDBLGAP)
+		local isLineUp  = modelLineUp[lastSelectedGUID or ""] or false
+		table.insert(lines, '  <Button id="tc_hud_dynLineUpToggle" '
+			.. 'onClick="' .. g .. '/btn_toggleModelLineUp" '
+			.. 'tooltip="Toggle line-up mode" '
+			.. btnStyle(isLineUp and "danger" or "active") .. ' '
+			.. 'width="' .. HBW .. '" height="' .. HBW .. '" '
+			.. 'fontSize="26" '
+			.. 'rectAlignment="UpperLeft" '
+			.. 'offsetXY="' .. hcol(0) .. ' ' .. hRow3Y .. '">'
+			.. '<Text id="tc_hud_dynLineUpToggle_text" text="⋯" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="26" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+			.. '</Button>')
 
 		-- Slot section — to the right of mod grid
 		local slotX = HPAD + (4 * HSTEP) + HGAP
@@ -1743,7 +1786,7 @@ end
 	end
 
 -- ──────────────────────────────────────────────────────────────
---  RADIUS ADJUST
+--  RADIUS & OFFSET ADJUST
 -- ──────────────────────────────────────────────────────────────
 
 	local function applyRadiusToModel(targetGUID, delta, playerColor)
@@ -1766,6 +1809,41 @@ end
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
 	    applyRadiusToModel(sel[1].getGUID(), -RADIUS_STEP, playerColor)
+	end
+
+	function btn_lineForward(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
+		local sel = Player[playerColor].getSelectedObjects()
+		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+		local targetGUID = sel[1].getGUID()
+		modelLineOffset[targetGUID] = (modelLineOffset[targetGUID] or 0) + RADIUS_STEP
+		saveState()
+	end
+
+	function btn_lineBackward(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
+		local sel = Player[playerColor].getSelectedObjects()
+		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+		local targetGUID = sel[1].getGUID()
+		modelLineOffset[targetGUID] = (modelLineOffset[targetGUID] or 0) - RADIUS_STEP
+		saveState()
+	end
+
+	function btn_toggleModelLineUp(player, playerColor)
+		playerColor = (type(player) == "userdata" and player.color) or playerColor
+		local sel = Player[playerColor].getSelectedObjects()
+		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
+		local targetGUID = sel[1].getGUID()
+		modelLineUp[targetGUID] = not modelLineUp[targetGUID]
+		saveState()
+		local isLineUp = modelLineUp[targetGUID]
+		local s = BTN_STYLE[isLineUp and "active" or "ghost"]
+		self.UI.setAttribute("dynLineUpToggle", "colors",    s.colors)
+		self.UI.setAttribute("dynLineUpToggle", "textColor", s.textColor)
+		UI.setAttribute("tc_hud_dynLineUpToggle", "colors",    s.colors)
+		UI.setAttribute("tc_hud_dynLineUpToggle", "textColor", s.textColor)
+		self.UI.setAttribute("dynLineUpToggle_text",        "color", s.textColor)
+		UI.setAttribute("tc_hud_dynLineUpToggle_text",      "color", s.textColor)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -1949,15 +2027,27 @@ end
 	                        entry.lastKnownPos = { x=tPos.x, y=tPos.y, z=tPos.z }
 	                        entry.missingTime  = nil
 	                        local pos
-	                        if total == 1 then
-	                            pos = { x=tPos.x, y=tPos.y + entry.offset, z=tPos.z }
+	                        if total == 1 then -- single token
+								local zOffset = modelLineOffset[targetGUID] or 0
+								pos = { x=tPos.x, y=tPos.y + entry.offset, z=tPos.z + zOffset }
 	                        else
-	                            local angle = ((idx-1) / total) * (2 * math.pi)
-	                            pos = {
-	                                x = tPos.x + radius * math.cos(angle),
-	                                y = tPos.y + entry.offset,
-	                                z = tPos.z + radius * math.sin(angle),
-	                            }
+	                            if modelLineUp[targetGUID] then
+									local spacing = getRadiusForTarget(targetGUID)
+									local zOffset = modelLineOffset[targetGUID] or 0
+									pos = {
+										x = tPos.x + (idx - (total + 1) / 2) * spacing,
+										y = tPos.y + entry.offset,
+										z = tPos.z + zOffset,
+									}
+								else -- multi token
+									local angle   = ((idx-1) / total) * (2 * math.pi)
+									local zOffset = modelLineOffset[targetGUID] or 0
+									pos = {
+										x = tPos.x + radius * math.cos(angle),
+										y = tPos.y + entry.offset,
+										z = tPos.z + radius * math.sin(angle) + zOffset,
+									}
+								end
 	                        end
 	                        token.setPositionSmooth(pos, false, false)
 	                    end
