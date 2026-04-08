@@ -1086,6 +1086,21 @@ end
 	    local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
 	    local tcLabel = templateJSON and tcShort or "No Template"
 	    table.insert(lines, '  >' .. tcLabel .. '</Button>')
+		
+		-- ── Size warning ──
+		if templateCache.byteSize > 5000 then
+			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
+			local warnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
+			table.insert(lines, '<Panel id="tc_hud_sizeWarning"')
+			table.insert(lines, '  rectAlignment="LowerCenter"')
+			table.insert(lines, '  offsetXY="0 140"')
+			table.insert(lines, '  width="224" height="14"')
+			table.insert(lines, '  color="' .. warnColor .. '">')
+			table.insert(lines, '  <Text text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" />')
+			table.insert(lines, '</Panel>')
+		else
+			table.insert(lines, '<Panel id="tc_hud_sizeWarning" active="False" rectAlignment="LowerCenter" offsetXY="0 222" width="160" height="18" />')
+		end
 
 	    -- ── Settings flyout panel (Remove / Clear / Edit History) ──
 	    table.insert(lines, '<Panel id="tc_hud_settingsPanel"')
@@ -1299,6 +1314,7 @@ end
 			existing = stripBetween(existing, '<Button id="tc_hud_restore_tokens"','</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_templateVis"',  '</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_restore"',      '</Button>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_sizeWarning"', '</Panel>')
 			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"', '</Panel>')
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
