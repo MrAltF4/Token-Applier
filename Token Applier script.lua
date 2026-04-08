@@ -2036,9 +2036,11 @@ end
 	                local radius = getRadiusForTarget(targetGUID)
 	                for idx, tGUID in ipairs(tokenList) do
 	                    local token = getObjectFromGUID(tGUID)
-	                    if not token then
-	                        toRemove[#toRemove + 1] = tGUID
-	                    else
+							if not token then
+								toRemove[#toRemove + 1] = tGUID
+							elseif heldModels[targetGUID] then
+								-- model is being carried, skip follow so tokens stay hidden up high
+							else
 	                        local entry = hoverEntries[tGUID]
 	                        entry.lastKnownPos = { x=tPos.x, y=tPos.y, z=tPos.z }
 	                        entry.missingTime  = nil
