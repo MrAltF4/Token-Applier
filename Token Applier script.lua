@@ -48,6 +48,8 @@
 	local templateIsFlippable 	= false
 	local modelLineUp     		= {}   -- [targetGUID] = "radial"|"line"
 	local modelLineOffset 		= {}   -- [targetGUID] = number (world Z offset)
+	local transferTokenGUID     = nil  -- set for single-token transfer mode
+	local transferSourceGUID    = nil  -- set for all-tokens transfer mode (model GUID)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -57,6 +59,7 @@
 	local rebuildXML
 	local rebuildHUD
 	local hudRebuildPending = false
+	local injectContextMenu
 
 -- ──────────────────────────────────────────────────────────────
 --  BUTTON STYLES
@@ -1385,6 +1388,47 @@ end
 	function btn_select_5(_, _) handleSelectToken(5) end
 	function btn_select_6(_, _) handleSelectToken(6) end
 
+
+
+-- ──────────────────────────────────────────────────────────────
+--  Transfer_tokens-to-model
+-- ──────────────────────────────────────────────────────────────
+	local function executeTransfer(destGUID, tokenGUIDs)
+		local destObj  = getObjectFromGUID(destGUID)
+		local destName = destObj and destObj.getName() or "Unknown"
+		local existing  = findTokensForTarget(destGUID)
+		local available = MAX_TOKENS - #existing
+		local total     = #tokenGUIDs
+		local transferred = 0
+
+		for _, tGUID in ipairs(tokenGUIDs) do
+			if available <= 0 then break end
+			local entry = hoverEntries[tGUID]
+			if entry then
+				entry.targetGUID = destGUID
+				transferred = transferred + 1
+				available   = available - 1
+			end
+		end
+
+		saveState()
+		hideDynamicPanel()
+
+		if transferred < total then
+			broadcastToAll(
+				"Max tokens reached on \"" .. destName .. "\" — only " .. transferred .. " of " .. total .. " transferred.",
+				{ 1, 0.6, 0.2 }
+			)
+		else
+			broadcastToAll(
+				"   Transferred " .. transferred .. " token(s) to " .. destName .. ".",
+				{ 0.3, 1, 0.5 }
+			)
+		end
+	end
+
+
+
 -- ──────────────────────────────────────────────────────────────
 --  SELECTION POLLING LOOP
 -- ──────────────────────────────────────────────────────────────
@@ -1409,13 +1453,39 @@ end
 		local function poll()
 			local sel = getSelection()
 			if #sel > 0 then
-				dynHideDelay = false
-				local guid   = sel[1].getGUID()
-				local tokens = findTokensForTarget(guid)
-				if #tokens > 0 then
-					showDynamicPanel(guid, #tokens)
+				if transferTokenGUID or transferSourceGUID then
+					local destGUID = sel[1].getGUID()
+					if not hoverEntries[destGUID] then
+						-- only proceed if destination is a model, not a token
+						local sourceModel = transferSourceGUID
+						if not sourceModel and transferTokenGUID then
+							local e = hoverEntries[transferTokenGUID]
+							if e then sourceModel = e.targetGUID end
+						end
+						if sourceModel then
+							if destGUID == sourceModel then
+								broadcastToAll("Can't transfer to the same model.", { 1, 0.7, 0.3 })
+							elseif destGUID == self.getGUID() or destGUID == previewGUID then
+								-- silently ignore TC itself and preview object
+							else
+								local tokensToMove = transferTokenGUID
+									and { transferTokenGUID }
+									or  findTokensForTarget(transferSourceGUID)
+								executeTransfer(destGUID, tokensToMove)
+								transferTokenGUID  = nil
+								transferSourceGUID = nil
+							end
+						end
+					end
 				else
-					if dynPanelVisible then hideDynamicPanel() end
+					dynHideDelay = false
+					local guid   = sel[1].getGUID()
+					local tokens = findTokensForTarget(guid)
+					if #tokens > 0 then
+						showDynamicPanel(guid, #tokens)
+					else
+						if dynPanelVisible then hideDynamicPanel() end
+					end
 				end
 			else
 				if dynPanelVisible then
@@ -1432,20 +1502,42 @@ end
 		Wait.time(poll, 0.3)
 	end
 
+
+
 -- ──────────────────────────────────────────────────────────────
---  INJECTION (right-click-flip)
+--  CONTEXT MENU INJECTION (right-click-flip, Transfer_tokens-to-model)
 -- ──────────────────────────────────────────────────────────────
 
-	local function injectContextMenu(token)
-		token.addContextMenuItem("Flip", function(playerColor)
-			local entry = hoverEntries[token.getGUID()]
-			token.setLock(false)
-			local rot = token.getRotation()
-			local newX = (math.abs(rot.x - 180) < 5) and 0 or 180
-			token.setRotation({ newX, rot.y, rot.z })
-			if entry then entry.flipped = (newX == 180) end
-			token.setLock(true)
-			saveState()
+	injectContextMenu = function(token)
+		local tGUID = token.getGUID()
+
+		if templateIsFlippable then
+			token.addContextMenuItem("Flip", function(playerColor)
+				local entry = hoverEntries[tGUID]
+				token.setLock(false)
+				local rot = token.getRotation()
+				local newX = (math.abs(rot.x - 180) < 5) and 0 or 180
+				token.setRotation({ newX, rot.y, rot.z })
+				if entry then entry.flipped = (newX == 180) end
+				token.setLock(true)
+				saveState()
+			end)
+		end
+
+		token.addContextMenuItem("⇒ Transfer (all)", function(playerColor)
+			local entry = hoverEntries[tGUID]
+			if not entry then return end
+			transferSourceGUID = entry.targetGUID
+			transferTokenGUID  = nil
+			broadcastToAll("Select destination model for all tokens…", { 0.5, 0.8, 1 })
+		end)
+
+		token.addContextMenuItem("→ Transfer (single)", function(playerColor)
+			local entry = hoverEntries[tGUID]
+			if not entry then return end
+			transferTokenGUID  = tGUID
+			transferSourceGUID = nil
+			broadcastToAll("Select destination model for this token…", { 0.5, 0.8, 1 })
 		end)
 	end
 
@@ -1898,7 +1990,7 @@ end
 	                    local c = token.getColorTint()
 	                    token.setColorTint({ r=c.r, g=c.g, b=c.b, a=spawnAlpha })
 	                end)
-					if templateIsFlippable then injectContextMenu(token) end
+					injectContextMenu(token)
 	                if callback then callback(token) end
 	            end
 	        end,
@@ -2121,7 +2213,7 @@ end
 	            spawnTemplateAt(pos, r.entry.scale, r.entry.flipped, r.entry.rotated, function(newToken)
 	                if newToken then
 	                    newToken.setLock(true)
-						if templateIsFlippable then injectContextMenu(newToken) end
+						injectContextMenu(newToken)
 	                    local newGUID = newToken.getGUID()
 	                    hoverEntries[newGUID] = {
 	                        targetGUID = r.entry.targetGUID,
@@ -2147,6 +2239,29 @@ end
 
 	function onObjectPickUp(_, object)
 	    local guid = object.getGUID()
+		-- Transfer mode: picking up a model counts as selecting the destination
+		if transferTokenGUID or transferSourceGUID then
+			if not hoverEntries[guid] and guid ~= self.getGUID() and guid ~= previewGUID then
+				local sourceModel = transferSourceGUID
+				if not sourceModel and transferTokenGUID then
+					local e = hoverEntries[transferTokenGUID]
+					if e then sourceModel = e.targetGUID end
+				end
+				if sourceModel then
+					if guid == sourceModel then
+						broadcastToAll("Can't transfer to the same model.", { 1, 0.7, 0.3 })
+					else
+						local tokensToMove = transferTokenGUID
+							and { transferTokenGUID }
+							or  findTokensForTarget(transferSourceGUID)
+						executeTransfer(guid, tokensToMove)
+						transferTokenGUID  = nil
+						transferSourceGUID = nil
+					end
+				end
+			end
+			-- fall through to normal pickup handling so tokens still hide
+		end
 	    local tokens = findTokensForTarget(guid)
 	    if #tokens == 0 then return end
 	    heldModels[guid] = true
