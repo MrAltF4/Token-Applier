@@ -318,6 +318,20 @@
 		targetMapCache = nil
 	end
 
+	local function buildTargetMap()
+		if targetMapCache then return targetMapCache end
+		local map = {}
+		for tGUID, entry in pairs(hoverEntries) do
+			if type(entry) == "table" then
+				local tgt = entry.targetGUID
+				if not map[tgt] then map[tgt] = {} end
+				map[tgt][#map[tgt] + 1] = tGUID
+			end
+		end
+		targetMapCache = map
+		return map
+	end
+
 -- ──────────────────────────────────────────────────────────────
 --  TEMPLATE CACHE
 -- ──────────────────────────────────────────────────────────────
@@ -1411,8 +1425,9 @@ end
 	local function executeTransfer(destGUID, tokenGUIDs)
 		local destObj  = getObjectFromGUID(destGUID)
 		local destName = destObj and destObj.getName() or "Unknown"
-		local existing  = findTokensForTarget(destGUID)
-		local available = MAX_TOKENS - #existing
+		local existingMap = buildTargetMap()
+		local existing    = existingMap[destGUID] or {}
+		local available   = MAX_TOKENS - #existing
 		local total     = #tokenGUIDs
 		local transferred = 0
 
@@ -2068,20 +2083,6 @@ end
 	function startFollowLoop()
 	    if followLoopRunning then return end
 	    followLoopRunning = true
-
-	    local function buildTargetMap()
-			if targetMapCache then return targetMapCache end
-			local map = {}
-			for tGUID, entry in pairs(hoverEntries) do
-				if type(entry) == "table" then
-					local tgt = entry.targetGUID
-					if not map[tgt] then map[tgt] = {} end
-					map[tgt][#map[tgt] + 1] = tGUID
-				end
-			end
-			targetMapCache = map
-			return map
-		end
 
 	    local function dist(a, b)
 	        local dx=a.x-b.x ; local dy=a.y-b.y ; local dz=a.z-b.z
