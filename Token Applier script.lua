@@ -55,6 +55,7 @@
 	local saveStateDelay    	= 0.5   -- seconds; tune down to 0.2 if you want snappier persistence
 	local targetMapCache    	= nil   -- invalidated when hoverEntries changes
 	local seatedColors 			= {}
+	local dropTemplateEnabled 	= true
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -603,6 +604,11 @@ end
 		end
 		rebuildXML()
 	end
+	
+	function btn_toggleDropTemplate(_, _)
+		dropTemplateEnabled = not dropTemplateEnabled
+		rebuildXML()
+	end
 
 -- ──────────────────────────────────────────────────────────────
 --  DYNAMIC PANEL — show/hide helpers
@@ -816,6 +822,14 @@ end
 		table.insert(lines, '        ' .. btnStyle(hideSetTemplate and "danger" or "settingsItem"))
 		table.insert(lines, '        fontSize="18" preferredWidth="414" preferredHeight="50"')
 		table.insert(lines, '        ><Text text="' .. (hideSetTemplate and "Template: Hidden" or "Template: Visible") .. '" color="' .. BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '    </HorizontalLayout>')
+			-- Toggle Drop-to-template_Function
+		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
+		table.insert(lines, '      <Button onClick="btn_toggleDropTemplate"')
+		table.insert(lines, '        tooltip="Enable or disable dropping objects onto TC to set template"')
+		table.insert(lines, '        ' .. btnStyle(dropTemplateEnabled and "settingsItem" or "danger"))
+		table.insert(lines, '        fontSize="18" preferredWidth="414" preferredHeight="50"')
+		table.insert(lines, '        ><Text text="' .. (dropTemplateEnabled and "Drop Template: ON" or "Drop Template: OFF") .. '" color="' .. BTN_STYLE[dropTemplateEnabled and "settingsItem" or "danger"].textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
@@ -1648,6 +1662,7 @@ end
 -- ──────────────────────────────────────────────────────────────
 
 	function onCollisionEnter(info)
+		if not dropTemplateEnabled then return end
 	    if collisionCooldown then return end
 	    local obj = info.collision_object
 	    if not obj then return end
