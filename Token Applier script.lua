@@ -24,7 +24,7 @@
 -- ──────────────────────────────────────────────────────────────
 --  STATE VARIABLES
 -- ──────────────────────────────────────────────────────────────
-	local targetMapCache    = nil   -- invalidated when hoverEntries changes
+	
 	local hoverEntries      = {}
 	local modelRadius       = {}
 	local templateJSON      = nil
@@ -53,6 +53,8 @@
 	local transferSourceGUID    = nil  -- set for all-tokens transfer mode (model GUID)
 	local saveStatePending  	= false
 	local saveStateDelay    	= 0.5   -- seconds; tune down to 0.2 if you want snappier persistence
+	local targetMapCache    	= nil   -- invalidated when hoverEntries changes
+	local seatedColors 			= {}
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -1470,12 +1472,9 @@ end
 		if selectionLoopRunning then return end
 		selectionLoopRunning = true
 		local function getSelection()
-			local colours = { "Red","Blue","White","Green","Yellow","Orange","Purple","Pink","Teal" }
-			for _, colour in ipairs(colours) do
+			for colour, _ in pairs(seatedColors) do
 				local ok, sel = pcall(function()
-					local p = Player[colour]
-					if p and p.seated then return p.getSelectedObjects() end
-					return {}
+					return Player[colour].getSelectedObjects()
 				end)
 				if ok and sel and #sel > 0 then return sel end
 			end
@@ -1731,6 +1730,12 @@ end
 	    startFollowLoop()
 	    startSelectionLoop()
 	    restorePreview()
+		for _, colour in ipairs({"Red","Blue","White","Green","Yellow","Orange","Purple","Pink","Teal"}) do
+			local p = Player[colour]
+			if p and p.seated then
+				seatedColors[colour] = true
+			end
+		end
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -2255,6 +2260,17 @@ end
 	    saveState()
 		invalidateTargetMap()
 	    printToAll("Restored " .. restored .. " hover token(s).", { 0.3, 0.8, 1 })
+	end
+
+-- ──────────────────────────────────────────────────────────────
+--  onPlayerConnect event handlers
+-- ──────────────────────────────────────────────────────────────
+	function onPlayerConnect(player)
+		seatedColors[player.color] = true
+	end
+
+	function onPlayerDisconnect(player)
+		seatedColors[player.color] = nil
 	end
 
 -- ──────────────────────────────────────────────────────────────
