@@ -72,7 +72,7 @@
 	local seatedColors 			= {}
 	local dropTemplateEnabled 	= true
 	local hudDraggable 			= false
-	local hudRootOffsetXY 		= "0 0"
+	local hudRootOffsetXY 		= "0 2"
 	local hudPlacementMode 		= false
 
 -- ──────────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@
 				previewGUID       = previewGUID,
 				tokenHistory      = tokenHistory,
 				hudDraggable      = hudDraggable,
-				hudRootOffsetXY		= hudRootOffsetXY,
+				hudVisible 			= hudVisible,
 			}
 			self.script_state = JSON.encode(blob)
 		end, saveStateDelay)
@@ -265,7 +265,7 @@
 	    if type(data.previewGUID)   == "string" then previewGUID   = data.previewGUID   end
 	    if type(data.tokenHistory)  == "table"  then tokenHistory  = data.tokenHistory  end
 		if type(data.hudDraggable) == "boolean" then hudDraggable = data.hudDraggable end
-		if type(data.hudRootOffsetXY) == "string" then hudRootOffsetXY = data.hudRootOffsetXY end
+		if type(data.hudVisible) == "boolean" then hudVisible = data.hudVisible end
 	    refreshTemplateCache()
 	end
 
@@ -541,12 +541,14 @@ end
 	function hud_toggleVisible(player, _, _)
 		hudVisible = not hudVisible
 		if hudVisible then
+			UI.show("tc_hud_root")
 			UI.show("tc_hud_core")
 			UI.show("tc_hud_minimize")
 			UI.show("tc_hud_settings")
 			if not hideSetTemplate then UI.show("tc_hud_setTemplate") end
 			UI.hide("tc_hud_restore")
 		else
+			UI.hide("tc_hud_root")
 			UI.hide("tc_hud_core")
 			UI.hide("tc_hud_minimize")
 			UI.hide("tc_hud_settings")
@@ -556,6 +558,7 @@ end
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_dynPanel")
+			UI.hide("tc_hud_sizeWarning")
 			settingsOpen = false
 			UI.show("tc_hud_restore")
 		end
@@ -1306,17 +1309,7 @@ end
 	    local tvStyle = BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"]
 		table.insert(lines, '  ><Text text="' .. (hideSetTemplate and "O" or "I") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
-	    -- ── Minimised-restore button ──
-	    table.insert(lines, '<Button id="tc_hud_restore"')
-	    table.insert(lines, '  active="' .. (not hudVisible and "True" or "False") .. '"')
-	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="0 2"')
-	    table.insert(lines, '  width="120" height="26"')
-	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
-	    table.insert(lines, '  ' .. btnStyle("hudAdd"))
-	    table.insert(lines, '  fontSize="12"')
-	    table.insert(lines, '  tooltip="Show Token Controller HUD"')
-	    table.insert(lines, '  >Token Applier</Button>')
+	    
 
 	-- ── HUD Dynamic panel ──
 		local HPAD  = 8
@@ -1432,6 +1425,18 @@ end
 				table.insert(lines, '</Panel>') -- end tc_hud_dynPanel
 
 			table.insert(lines, '</Panel>') -- end tc_hud_root
+			
+		-- ── Minimised-restore button ──
+	    table.insert(lines, '<Button id="tc_hud_restore"')
+	    table.insert(lines, '  active="' .. (not hudVisible and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="0 2"')
+	    table.insert(lines, '  width="120" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
+	    table.insert(lines, '  ' .. btnStyle("hudAdd"))
+	    table.insert(lines, '  fontSize="12"')
+	    table.insert(lines, '  tooltip="Show Token Controller HUD"')
+	    table.insert(lines, '  >Token Applier</Button>')
 
 		-- ── Placement overlay ──
 		table.insert(lines, '<Panel id="tc_hud_placementOverlay"')
@@ -1442,7 +1447,7 @@ end
 		table.insert(lines, '  color="#000000F2">')
 
 		for _, pos in ipairs(HUD_POSITIONS) do
-			if pos.offsetXY ~= hudRootOffsetXY then
+			if pos.hudXY ~= hudRootOffsetXY then
 				table.insert(lines, '  <Button')
 				table.insert(lines, '    onClick="' .. g .. '/hud_pos_' .. pos.id .. '"')
 				table.insert(lines, '    ' .. btnStyle("hudPosition"))
@@ -1493,6 +1498,14 @@ end
 			existing = stripBetween(existing, '<Panel id="tc_hud_placementOverlay"', '</Panel>')
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
+			--print("[Debug] hudRootOffsetXY at rebuild: " .. tostring(hudRootOffsetXY))
+			--print("[Debug] hudVisible at rebuild: " .. tostring(hudVisible))
+			--print("[Debug] hudXml length: " .. #hudXml)
+			if not hudVisible then
+				UI.hide("tc_hud_root")
+				UI.hide("tc_hud_sizeWarning")
+				UI.show("tc_hud_restore")
+			end
 		end, 0.1)
 	end
 
@@ -1861,7 +1874,10 @@ end
 
 	function onLoad()
 	    loadState()
-		-- hudRootOffsetXY = "0 27" -- TO PREVENT THE HUD FROM RUNNING AWAY - DELETE ONCE ALL THE POSITIONS HAVE BEEN LOCKED IN.
+		hudPlacementMode = false
+			--print("[Debug] hudVisible on load: " .. tostring(hudVisible))
+			--print("[Debug] hudPlacementMode on load: " .. tostring(hudPlacementMode))
+		--hudRootOffsetXY = "0 2" -- TO PREVENT THE HUD FROM RUNNING AWAY - DELETE ONCE ALL THE POSITIONS HAVE BEEN LOCKED IN.
 		-- Re-inject context menus on existing tokens after load
 		for tGUID, entry in pairs(hoverEntries) do
 			if type(entry) == "table" then
