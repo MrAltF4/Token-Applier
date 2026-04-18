@@ -56,6 +56,7 @@
 	local targetMapCache    	= nil   -- invalidated when hoverEntries changes
 	local seatedColors 			= {}
 	local dropTemplateEnabled 	= true
+	local hudDraggable 			= false
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -213,6 +214,7 @@
 				templateScale     = templateScale,
 				previewGUID       = previewGUID,
 				tokenHistory      = tokenHistory,
+				hudDraggable      = hudDraggable,
 			}
 			self.script_state = JSON.encode(blob)
 		end, saveStateDelay)
@@ -239,6 +241,7 @@
 	    if type(data.templateScale) == "table"  then templateScale = data.templateScale end
 	    if type(data.previewGUID)   == "string" then previewGUID   = data.previewGUID   end
 	    if type(data.tokenHistory)  == "table"  then tokenHistory  = data.tokenHistory  end
+		if type(data.hudDraggable) == "boolean" then hudDraggable = data.hudDraggable end
 	    refreshTemplateCache()
 	end
 
@@ -564,6 +567,12 @@ end
 
 	function hud_toggleSettings(player, _, _)
 		btn_toggleSettings(nil, nil)
+	end
+	
+	function btn_toggleHudDraggable(_, _)
+		hudDraggable = not hudDraggable
+		UI.setAttribute("tc_hud_root",         "allowDragging", hudDraggable and "true" or "false")
+		UI.setAttribute("tc_hud_dragToggleBtn", "text",         hudDraggable and "Drag: ON" or "Drag: OFF")
 	end
 	
 	
@@ -1017,6 +1026,16 @@ end
 	local function buildHUDXml(guid)
 	    local lines = {}
 	    local g = guid
+		
+		-- ── Root draggable wrapper ──
+		table.insert(lines, '<Panel id="tc_hud_root"')
+		table.insert(lines, '  rectAlignment="LowerCenter"')
+		table.insert(lines, '  offsetXY="0 0"')
+		table.insert(lines, '  width="200" height="150"')
+		table.insert(lines, '  color="#FFFFFFAA"')
+		table.insert(lines, '  allowDragging="' .. (hudDraggable and "true" or "false") .. '"')
+		table.insert(lines, '  restrictDraggingToParentBounds="false"')
+		table.insert(lines, '  returnToOriginalPositionWhenReleased="false">')
 
 	    -- ── CORE panel ──
 	    -- Contains: Add Token, History Grid (2×4), Minimize footer
@@ -1157,7 +1176,7 @@ end
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
 	    table.insert(lines, '  offsetXY="-180 75"')
-	    table.insert(lines, '  width="120" height="70"')
+	    table.insert(lines, '  width="120" height="100"')
 	    table.insert(lines, '  color="#1A1A1A00">') -- used to have CC at the end
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter">')
 	    -- Remove Tokens
@@ -1178,6 +1197,14 @@ end
 	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
 	    table.insert(lines, '      tooltip="Toggle delete mode on history slots"')
 	    table.insert(lines, '      >' .. (historyEditMode and "Delete →" or "Edit History") .. '</Button>')
+		-- Toggle HUD draggable
+		table.insert(lines, '    <Button id="tc_hud_dragToggleBtn"')
+		table.insert(lines, '      onClick="' .. g .. '/btn_toggleHudDraggable"')
+		table.insert(lines, '      ' .. btnStyle(hudDraggable and "active" or "settingsItem"))
+		table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
+		table.insert(lines, '      tooltip="Allow HUD to be dragged to a new position"')
+		table.insert(lines, '      >' .. (hudDraggable and "Drag: ON" or "Drag: OFF") .. '</Button>')
+		
 	    table.insert(lines, '  </VerticalLayout>')
 	    table.insert(lines, '</Panel>') -- end tc_hud_settingsPanel
 
@@ -1331,6 +1358,7 @@ end
 
 		table.insert(lines, '</Panel>') -- end tc_hud_dynPanel
 
+		table.insert(lines, '</Panel>') -- end tc_hud_root
 	    return table.concat(lines, "\n")
 	end
 
@@ -1363,6 +1391,7 @@ end
 			existing = stripBetween(existing, '<Button id="tc_hud_restore"',      '</Button>')
 			existing = stripBetween(existing, '<Panel id="tc_hud_sizeWarning"', '</Panel>')
 			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"', '</Panel>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_root"', '</Panel>')
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
 		end, 0.1)
