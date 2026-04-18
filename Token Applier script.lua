@@ -50,6 +50,8 @@
 	local modelLineOffset 		= {}   -- [targetGUID] = number (world Z offset)
 	local transferTokenGUID     = nil  -- set for single-token transfer mode
 	local transferSourceGUID    = nil  -- set for all-tokens transfer mode (model GUID)
+	local saveStatePending  	= false
+	local saveStateDelay    	= 0.5   -- seconds; tune down to 0.2 if you want snappier persistence
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -194,17 +196,22 @@
 -- ──────────────────────────────────────────────────────────────
 
 	local function saveState()
-	    local blob = {
-	        hoverEntries  = hoverEntries,
-	        modelRadius   = modelRadius,
-			modelLineUp       = modelLineUp,       
-			modelLineOffset   = modelLineOffset,  
-	        templateJSON  = templateJSON,
-	        templateScale = templateScale,
-	        previewGUID   = previewGUID,
-	        tokenHistory  = tokenHistory,
-	    }
-	    self.script_state = JSON.encode(blob)
+		if saveStatePending then return end
+		saveStatePending = true
+		Wait.time(function()
+			saveStatePending = false
+			local blob = {
+				hoverEntries      = hoverEntries,
+				modelRadius       = modelRadius,
+				modelLineUp       = modelLineUp,
+				modelLineOffset   = modelLineOffset,
+				templateJSON      = templateJSON,
+				templateScale     = templateScale,
+				previewGUID       = previewGUID,
+				tokenHistory      = tokenHistory,
+			}
+			self.script_state = JSON.encode(blob)
+		end, saveStateDelay)
 	end
 
 	local function loadState()
@@ -316,10 +323,9 @@
 			templateCache = { label = "Set Template\n(none)", imageURL = "", name = "", byteSize = 0 }
 			return
 		end
-		local ok2, data2 = pcall(JSON.decode, templateJSON)
-			templateIsFlippable = (ok2 and isFlippableType(data2)) or false
 		local byteSize = #templateJSON
 		local ok, data = pcall(JSON.decode, templateJSON)
+		templateIsFlippable = (ok and isFlippableType(data)) or false
 		if not ok or type(data) ~= "table" then
 			templateCache = { label = "Set Template\n[custom]", imageURL = "", name = "Token", byteSize = byteSize }
 			return
