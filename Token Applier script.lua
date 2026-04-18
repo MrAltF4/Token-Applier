@@ -1718,6 +1718,15 @@ end
 
 	function onLoad()
 	    loadState()
+		-- Re-inject context menus on existing tokens after load
+		for tGUID, entry in pairs(hoverEntries) do
+			if type(entry) == "table" then
+				local token = getObjectFromGUID(tGUID)
+				if token then
+					injectContextMenu(token)
+				end
+			end
+		end
 
 	    Wait.condition(function()
 	        rebuildXML()
