@@ -534,6 +534,10 @@ end
 			settingsOpen = false
 		end
 		rebuildXML()
+		local si = BTN_STYLE[hudEnabled and "settingsItem" or "danger"]
+		UI.setAttribute("tc_hud_off", "colors",    si.colors)
+		UI.setAttribute("tc_hud_off", "textColor", si.textColor)
+		UI.setAttribute("tc_hud_off", "text",      hudEnabled and "HUD" or "OFF")
 	end
 
 	function hud_toggleSettings(player, _, _)
@@ -577,7 +581,6 @@ end
 			UI.show("tc_hud_setTemplate")
 		end
 		rebuildXML()
-		rebuildHUD()
 	end
 
 -- ──────────────────────────────────────────────────────────────
