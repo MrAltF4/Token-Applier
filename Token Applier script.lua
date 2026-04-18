@@ -24,6 +24,7 @@
 -- ──────────────────────────────────────────────────────────────
 --  STATE VARIABLES
 -- ──────────────────────────────────────────────────────────────
+	local targetMapCache    = nil   -- invalidated when hoverEntries changes
 	local hoverEntries      = {}
 	local modelRadius       = {}
 	local templateJSON      = nil
@@ -313,6 +314,9 @@
 		return data.Name == "Custom_Tile"
 	end
 
+	local function invalidateTargetMap()
+		targetMapCache = nil
+	end
 
 -- ──────────────────────────────────────────────────────────────
 --  TEMPLATE CACHE
@@ -483,6 +487,7 @@ end
 	        hoverEntries[tGUID] = nil
 	    end
 	    saveState()
+		invalidateTargetMap()
 	    hideDynamicPanel()
 	    local targetObj  = getObjectFromGUID(targetGUID)
 	    local targetName = targetObj and targetObj.getName() or "Unknown"
@@ -1354,6 +1359,7 @@ end
 	    local prevTarget = lastSelectedGUID
 	    hoverEntries[tGUID] = nil
 	    saveState()
+		invalidateTargetMap()
 	    local newTokens = prevTarget and findTokensForTarget(prevTarget) or {}
 	    if #newTokens > 0 then
 	        -- Force a refresh by resetting lastSelectedGUID so showDynamicPanel rebuilds
@@ -1421,6 +1427,7 @@ end
 		end
 
 		saveState()
+		invalidateTargetMap()
 		hideDynamicPanel()
 
 		if transferred < total then
@@ -2042,6 +2049,7 @@ end
 	        local newGUID = token.getGUID()
 	        hoverEntries[newGUID] = { targetGUID=targetGUID, offset=offset, scale=scale, flipped=false, rotated=false, vertical=false }
 	        saveState()
+			invalidateTargetMap()
 	        local targetObj  = getObjectFromGUID(targetGUID)
 	        local targetName = targetObj and targetObj.getName() or "Unknown"
 	        printToColor("Added token: " .. getTokenName(newGUID), playerColor, { 0.5, 1, 0.5 })
@@ -2062,16 +2070,18 @@ end
 	    followLoopRunning = true
 
 	    local function buildTargetMap()
-	        local map = {}
-	        for tGUID, entry in pairs(hoverEntries) do
-	            if type(entry) == "table" then
-	                local tgt = entry.targetGUID
-	                if not map[tgt] then map[tgt] = {} end
-	                map[tgt][#map[tgt] + 1] = tGUID
-	            end
-	        end
-	        return map
-	    end
+			if targetMapCache then return targetMapCache end
+			local map = {}
+			for tGUID, entry in pairs(hoverEntries) do
+				if type(entry) == "table" then
+					local tgt = entry.targetGUID
+					if not map[tgt] then map[tgt] = {} end
+					map[tgt][#map[tgt] + 1] = tGUID
+				end
+			end
+			targetMapCache = map
+			return map
+		end
 
 	    local function dist(a, b)
 	        local dx=a.x-b.x ; local dy=a.y-b.y ; local dz=a.z-b.z
@@ -2180,7 +2190,10 @@ end
 	            hoverEntries[guid] = nil
 	            dirty = true
 	        end
-	        if dirty then saveState() end
+	        if dirty then
+				saveState()
+				invalidateTargetMap()
+			end
 	        Wait.time(tick, FOLLOW_INTERVAL)
 	    end
 
@@ -2239,6 +2252,7 @@ end
 	        end
 	    end
 	    saveState()
+		invalidateTargetMap()
 	    printToAll("Restored " .. restored .. " hover token(s).", { 0.3, 0.8, 1 })
 	end
 
