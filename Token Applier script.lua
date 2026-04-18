@@ -21,6 +21,21 @@
 	local PICKUP_HEIGHT_BOOST = 50.0
 	local PICKUP_SCALE_SHRINK = 0.01
 
+-- HUD CONSTANTS
+	local HUD_POSITIONS = {
+	                             -- LowerCentre        MiddleCentre         X-LR Y-UD
+		{ id="top_left",        hudXY="-700 850",  btnXY="-700 375"  },
+		{ id="top_center",      hudXY="0 800",     btnXY="0 300"     },
+		{ id="top_right",       hudXY="400 850",   btnXY="525 375"   },
+		{ id="left_bottom",     hudXY="-700 250",  btnXY="-700 -250" }, 
+		{ id="bottom_left",     hudXY="-400 2",    btnXY="-400 -300" },
+		{ id="bottom_cenleft",  hudXY="-250 2",    btnXY="-250 -300" },  
+		{ id="bottom_center",   hudXY="0 2",       btnXY="0 -300"    },
+		{ id="bottom_cenright", hudXY="250 2",     btnXY="250 -300"  },
+		
+		
+	}
+
 -- ──────────────────────────────────────────────────────────────
 --  STATE VARIABLES
 -- ──────────────────────────────────────────────────────────────
@@ -58,6 +73,7 @@
 	local dropTemplateEnabled 	= true
 	local hudDraggable 			= false
 	local hudRootOffsetXY 		= "0 0"
+	local hudPlacementMode 		= false
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -161,6 +177,11 @@
 	        transition = "ColorTint",
 	    },
 	    hudHide = {
+	        colors     = "#1A1A1AF2|#2A2A2AF2|#111111F2|#333333AA",
+	        textColor  = "#888888",
+	        transition = "ColorTint",
+	    },
+		hudPosition = {
 	        colors     = "#1A1A1AF2|#2A2A2AF2|#111111F2|#333333AA",
 	        textColor  = "#888888",
 	        transition = "ColorTint",
@@ -587,6 +608,38 @@ end
 		UI.setAttribute("tc_hud_dragToggleBtn", "text", hudDraggable and "Drag: ON" or "Drag: OFF")
 	end
 	
+	function btn_toggleHudPlacement(_, _)
+		hudPlacementMode = not hudPlacementMode
+		if hudPlacementMode then
+			UI.show("tc_hud_placementOverlay")
+		else
+			UI.hide("tc_hud_placementOverlay")
+		end
+	end
+
+	function btn_selectHudPosition(player, _, id)
+		local playerColor = (type(player) == "userdata" and player.color) or player
+		-- find the offsetXY for this id
+		for _, pos in ipairs(HUD_POSITIONS) do
+			if pos.id == id then
+				hudRootOffsetXY = pos.hudXY
+				break
+			end
+		end
+		hudPlacementMode = false
+		UI.hide("tc_hud_placementOverlay")
+		saveState()
+		rebuildHUD()
+	end
+	
+	function hud_pos_left_bottom(player, _, _)     btn_selectHudPosition(player, nil, "left_bottom")     end
+	function hud_pos_bottom_left(player, _, _)  btn_selectHudPosition(player, nil, "bottom_left")  end
+	function hud_pos_bottom_center(player, _, _)   btn_selectHudPosition(player, nil, "bottom_center")   end
+	function hud_pos_bottom_cenright(player, _, _) btn_selectHudPosition(player, nil, "bottom_cenright") end
+	function hud_pos_bottom_cenleft(player, _, _)    btn_selectHudPosition(player, nil, "bottom_cenleft")    end
+	function hud_pos_top_left(player, _, _)        btn_selectHudPosition(player, nil, "top_left")        end
+	function hud_pos_top_center(player, _, _)      btn_selectHudPosition(player, nil, "top_center")      end
+	function hud_pos_top_right(player, _, _)       btn_selectHudPosition(player, nil, "top_right")       end
 	
 -- ──────────────────────────────────────────────────────────────
 --  SETTINGS BUTTONs
@@ -1210,6 +1263,13 @@ end
 	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
 	    table.insert(lines, '      tooltip="Toggle delete mode on history slots"')
 	    table.insert(lines, '      >' .. (historyEditMode and "Delete →" or "Edit History") .. '</Button>')
+		-- HUD placement selector
+		table.insert(lines, '    <Button id="tc_hud_placeBtn"')
+		table.insert(lines, '      onClick="' .. g .. '/btn_toggleHudPlacement"')
+		table.insert(lines, '      ' .. btnStyle(hudPlacementMode and "active" or "settingsItem"))
+		table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
+		table.insert(lines, '      tooltip="Choose a position for the HUD"')
+		table.insert(lines, '      >' .. (hudPlacementMode and "Cancel" or "Place HUD") .. '</Button>')
 		-- Toggle HUD draggable
 		table.insert(lines, '    <Button id="tc_hud_dragToggleBtn"')
 		table.insert(lines, '      onClick="' .. g .. '/btn_toggleHudDraggable"')
@@ -1369,9 +1429,34 @@ end
 			table.insert(lines, '    fontSize="18"><Text text="✕" color="#FFFFFF" width="' .. HRW .. '" height="' .. HBW .. '" alignment="MiddleCenter" /></Button>')
 		end
 
-		table.insert(lines, '</Panel>') -- end tc_hud_dynPanel
+				table.insert(lines, '</Panel>') -- end tc_hud_dynPanel
 
-		table.insert(lines, '</Panel>') -- end tc_hud_root
+			table.insert(lines, '</Panel>') -- end tc_hud_root
+
+		-- ── Placement overlay ──
+		table.insert(lines, '<Panel id="tc_hud_placementOverlay"')
+		table.insert(lines, '  active="' .. (hudPlacementMode and "True" or "False") .. '"')
+		table.insert(lines, '  rectAlignment="MiddleCenter"')
+		table.insert(lines, '  offsetXY="0 0"')
+		table.insert(lines, '  width="1920" height="1080"')
+		table.insert(lines, '  color="#000000F2">')
+
+		for _, pos in ipairs(HUD_POSITIONS) do
+			if pos.offsetXY ~= hudRootOffsetXY then
+				table.insert(lines, '  <Button')
+				table.insert(lines, '    onClick="' .. g .. '/hud_pos_' .. pos.id .. '"')
+				table.insert(lines, '    ' .. btnStyle("hudPosition"))
+				table.insert(lines, '    rectAlignment="MiddleCenter"')
+				table.insert(lines, '    offsetXY="' .. pos.btnXY .. '"')
+				table.insert(lines, '    width="60" height="60"')
+				table.insert(lines, '    fontSize="30"')
+				table.insert(lines, '    tooltip="Move HUD here">')
+				table.insert(lines, '    <Text text="+" color="#FFFFFF" fontSize="30" width="60" height="60" alignment="MiddleCenter" /></Button>')
+			end
+		end
+
+		table.insert(lines, '</Panel>') -- end tc_hud_placementOverlay
+		
 	    return table.concat(lines, "\n")
 	end
 
@@ -1405,6 +1490,7 @@ end
 			existing = stripBetween(existing, '<Panel id="tc_hud_sizeWarning"', '</Panel>')
 			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"', '</Panel>')
 			existing = stripBetween(existing, '<Panel id="tc_hud_root"', '</Panel>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_placementOverlay"', '</Panel>')
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
 		end, 0.1)
@@ -1775,6 +1861,7 @@ end
 
 	function onLoad()
 	    loadState()
+		-- hudRootOffsetXY = "0 27" -- TO PREVENT THE HUD FROM RUNNING AWAY - DELETE ONCE ALL THE POSITIONS HAVE BEEN LOCKED IN.
 		-- Re-inject context menus on existing tokens after load
 		for tGUID, entry in pairs(hoverEntries) do
 			if type(entry) == "table" then
