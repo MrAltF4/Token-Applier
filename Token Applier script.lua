@@ -57,6 +57,7 @@
 	local seatedColors 			= {}
 	local dropTemplateEnabled 	= true
 	local hudDraggable 			= false
+	local hudRootOffsetXY 		= "0 0"
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -215,6 +216,7 @@
 				previewGUID       = previewGUID,
 				tokenHistory      = tokenHistory,
 				hudDraggable      = hudDraggable,
+				hudRootOffsetXY		= hudRootOffsetXY,
 			}
 			self.script_state = JSON.encode(blob)
 		end, saveStateDelay)
@@ -242,6 +244,7 @@
 	    if type(data.previewGUID)   == "string" then previewGUID   = data.previewGUID   end
 	    if type(data.tokenHistory)  == "table"  then tokenHistory  = data.tokenHistory  end
 		if type(data.hudDraggable) == "boolean" then hudDraggable = data.hudDraggable end
+		if type(data.hudRootOffsetXY) == "string" then hudRootOffsetXY = data.hudRootOffsetXY end
 	    refreshTemplateCache()
 	end
 
@@ -571,8 +574,17 @@ end
 	
 	function btn_toggleHudDraggable(_, _)
 		hudDraggable = not hudDraggable
-		UI.setAttribute("tc_hud_root",         "allowDragging", hudDraggable and "true" or "false")
-		UI.setAttribute("tc_hud_dragToggleBtn", "text",         hudDraggable and "Drag: ON" or "Drag: OFF")
+		if not hudDraggable then
+			local pos = UI.getAttribute("tc_hud_root", "offsetXY")
+			print("[DragDebug] getAttribute returned: " .. tostring(pos))
+			print("[DragDebug] hudRootOffsetXY is: " .. tostring(hudRootOffsetXY))
+			if pos and pos ~= "" then
+				hudRootOffsetXY = pos
+			end
+			saveState()
+		end
+		UI.setAttribute("tc_hud_root", "allowDragging", hudDraggable and "true" or "false")
+		UI.setAttribute("tc_hud_dragToggleBtn", "text", hudDraggable and "Drag: ON" or "Drag: OFF")
 	end
 	
 	
@@ -1027,12 +1039,13 @@ end
 	    local lines = {}
 	    local g = guid
 		
+		
 		-- ── Root draggable wrapper ──
 		table.insert(lines, '<Panel id="tc_hud_root"')
 		table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="0 0"')
+		table.insert(lines, '  offsetXY="' .. hudRootOffsetXY .. '"')
 		table.insert(lines, '  width="200" height="150"')
-		table.insert(lines, '  color="#FFFFFFAA"')
+		table.insert(lines, '  color="#00000000"')
 		table.insert(lines, '  allowDragging="' .. (hudDraggable and "true" or "false") .. '"')
 		table.insert(lines, '  restrictDraggingToParentBounds="false"')
 		table.insert(lines, '  returnToOriginalPositionWhenReleased="false">')
@@ -1322,10 +1335,10 @@ end
 			.. 'tooltip="Toggle line-up mode" '
 			.. btnStyle(isLineUp and "danger" or "active") .. ' '
 			.. 'width="' .. HBW .. '" height="' .. HBW .. '" '
-			.. 'fontSize="26" '
+			.. 'fontSize="18" '
 			.. 'rectAlignment="UpperLeft" '
 			.. 'offsetXY="' .. hcol(0) .. ' ' .. hRow3Y .. '">'
-			.. '<Text id="tc_hud_dynLineUpToggle_text" text="⋯" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="26" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+			.. '<Text id="tc_hud_dynLineUpToggle_text" text="Line up" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="12" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
 			.. '</Button>')
 
 		-- Slot section — to the right of mod grid
