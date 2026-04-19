@@ -600,7 +600,10 @@
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_dynPanel")
+			UI.hide("tc_hud_root")
+			UI.hide("tc_hud_dynPanel")
 			UI.hide("tc_hud_sizeWarning")
+			UI.hide("tc_hud_deleteOverlayPanel")
 			settingsOpen = false
 			UI.show("tc_hud_restore")
 		end
@@ -625,6 +628,10 @@
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_restore")
+			UI.hide("tc_hud_root")
+			UI.hide("tc_hud_dynPanel")
+			UI.hide("tc_hud_sizeWarning")
+			UI.hide("tc_hud_deleteOverlayPanel")
 			settingsOpen = false
 		end
 		rebuildXML()
