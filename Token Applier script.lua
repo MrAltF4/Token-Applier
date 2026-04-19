@@ -433,22 +433,28 @@
 		saveState()
 		refreshTemplateButton()
 		spawnPreview()
-		rebuildXML()
-		rebuildHUD()
-		-- Restore dynamic panel if a model with tokens is still selected
-		Wait.time(function()
-			if dynPanelVisible then
-				local guid = lastSelectedGUID
-				if guid then
-					local tokens = findTokensForTarget(guid)
-					if #tokens > 0 then
-						self.UI.setAttribute("dynamicPanel",    "active", "True")
-						UI.setAttribute("tc_hud_dynPanel",      "active", "True")
-						refreshDynamicPanelSlots(guid)
-					end
-				end
-			end
-		end, 0.2)
+		-- Update history slot highlights
+		for i = 1, HISTORY_MAX do
+			local e        = tokenHistory[i]
+			local isActive = e and (templateJSON == e.json)
+			local style    = isActive and "active" or (e and "historySlot" or "ghost")
+			self.UI.setAttribute("histBtn" .. i,   "colors",    BTN_STYLE[style].colors)
+			self.UI.setAttribute("histBtn" .. i,   "textColor", BTN_STYLE[style].textColor)
+			UI.setAttribute("tc_hud_hist_" .. i,   "colors",    BTN_STYLE[style].colors)
+			UI.setAttribute("tc_hud_hist_" .. i,   "textColor", BTN_STYLE[style].textColor)
+		end
+		-- Update size warning
+		if templateCache.byteSize > 5000 then
+			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
+			self.UI.setAttribute("sizeWarningPanel", "active", "True")
+			self.UI.setAttribute("sizeWarningPanel", "color",  templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2")
+		else
+			self.UI.setAttribute("sizeWarningPanel", "active", "False")
+		end
+		-- Update HUD Set Template button
+		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
+		local tcLabel = templateJSON and tcShort or "No Template"
+		UI.setAttribute("tc_hud_setTemplate", "text", tcLabel)
 	end
 -- ──────────────────────────────────────────────────────────────
 --  HISTORY EDIT OVERLAY
