@@ -186,6 +186,17 @@
 	        textColor  = "#888888",
 	        transition = "ColorTint",
 	    },
+		--lineup and radial button style
+		lineUpOff = {
+			colors     = "#2B2B0DF2|#4A4A1AF2|#1F1F0AF2|#333333AA",
+			textColor  = "#FFFF44",
+			transition = "ColorTint",
+		},
+		lineUpOn = {
+			colors     = "#484716F2|#6B6B22F2|#303010F2|#333333AA",
+			textColor  = "#FFD700",
+			transition = "ColorTint",
+		},
 	}
 
 	local function btnStyle(name)
@@ -709,7 +720,24 @@ end
 
 		local tokens = findTokensForTarget(targetGUID)
 		local count  = math.min(tokenCount, MAX_TOKENS)
+		--show 
+		local isLineUp = modelLineUp[targetGUID] or false
+		local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
+		local label    = isLineUp and "Radial" or "Line up"
+		local fontSize = isLineUp and "10"     or "12"
 
+		self.UI.setAttribute("dynLineUpToggle",        "colors",    s.colors)
+		self.UI.setAttribute("dynLineUpToggle",        "textColor", s.textColor)
+		self.UI.setAttribute("dynLineUpToggle_text",   "text",      label)
+		self.UI.setAttribute("dynLineUpToggle_text",   "fontSize",  fontSize)
+		self.UI.setAttribute("dynLineUpToggle_text",   "color",     "#FFFFFF")
+		UI.setAttribute("tc_hud_dynLineUpToggle",      "colors",    s.colors)
+		UI.setAttribute("tc_hud_dynLineUpToggle",      "textColor", s.textColor)
+		UI.setAttribute("tc_hud_dynLineUpToggle_text", "text",      label)
+		UI.setAttribute("tc_hud_dynLineUpToggle_text", "fontSize",  fontSize)
+		UI.setAttribute("tc_hud_dynLineUpToggle_text", "color",     "#FFFFFF")
+		
+		--show spread
 		local showSpread = tokenCount >= 2
 		self.UI.setAttribute("dynSpreadUp",          "active", showSpread and "True" or "False")
 		self.UI.setAttribute("dynSpreadDown",        "active", showSpread and "True" or "False")
@@ -1048,7 +1076,7 @@ end
 			.. ' fontSize="30"'
 			.. ' rectAlignment="UpperLeft"'
 			.. ' offsetXY="' .. col4() .. ' ' .. row(0) .. '">'
-			.. '<Text id="dynLineUpToggle_text" text="⋯" color="' .. s.textColor .. '" fontSize="22" width="' .. BW .. '" height="' .. BW .. '" alignment="MiddleCenter" />'
+			.. '<Text id="dynLineUpToggle_text" text="Line up" color="#FFFFFF" fontSize="22" width="' .. BW .. '" height="' .. BW .. '" alignment="MiddleCenter" />'
 			.. '</Button>')
 			
 	    -- Token slots — below modifier grid with extra gap
@@ -1391,7 +1419,7 @@ end
 			.. 'fontSize="18" '
 			.. 'rectAlignment="UpperLeft" '
 			.. 'offsetXY="' .. hcol(0) .. ' ' .. hRow3Y .. '">'
-			.. '<Text id="tc_hud_dynLineUpToggle_text" text="Line up" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="12" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+			.. '<Text id="tc_hud_dynLineUpToggle_text" text="' .. (isLineUp and "Radial" or "Line up") .. '" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="12" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
 			.. '</Button>')
 
 		-- Slot section — to the right of mod grid
@@ -1895,6 +1923,17 @@ end
 	    Wait.condition(function()
 	        rebuildHUD()
 	    end, function() return not UI.loading end)
+		
+		Wait.condition(function()
+			local isLineUp = modelLineUp[lastSelectedGUID or ""] or false
+			local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
+			self.UI.setAttribute("dynLineUpToggle",          "colors",    s.colors)
+			self.UI.setAttribute("dynLineUpToggle",          "textColor", s.textColor)
+			self.UI.setAttribute("dynLineUpToggle_text",     "color",     "#FFFFFF")
+			UI.setAttribute("tc_hud_dynLineUpToggle",        "colors",    s.colors)
+			UI.setAttribute("tc_hud_dynLineUpToggle",        "textColor", s.textColor)
+			UI.setAttribute("tc_hud_dynLineUpToggle_text",   "color",     "#FFFFFF")
+		end, function() return not self.UI.loading and not UI.loading end)
 
 	    startFollowLoop()
 	    startSelectionLoop()
@@ -2150,13 +2189,17 @@ end
 		modelLineUp[targetGUID] = not modelLineUp[targetGUID]
 		saveState()
 		local isLineUp = modelLineUp[targetGUID]
-		local s = BTN_STYLE[isLineUp and "active" or "ghost"]
+		local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
 		self.UI.setAttribute("dynLineUpToggle", "colors",    s.colors)
 		self.UI.setAttribute("dynLineUpToggle", "textColor", s.textColor)
 		UI.setAttribute("tc_hud_dynLineUpToggle", "colors",    s.colors)
 		UI.setAttribute("tc_hud_dynLineUpToggle", "textColor", s.textColor)
 		self.UI.setAttribute("dynLineUpToggle_text",        "color", s.textColor)
 		UI.setAttribute("tc_hud_dynLineUpToggle_text",      "color", s.textColor)
+		self.UI.setAttribute("dynLineUpToggle_text",   "text",     isLineUp and "Token Radial" or "Token Line up")
+		self.UI.setAttribute("dynLineUpToggle_text",   "fontSize", isLineUp and "14"     or "14")
+		UI.setAttribute("tc_hud_dynLineUpToggle_text", "text",     isLineUp and "Token Radial" or "Token Line up")
+		UI.setAttribute("tc_hud_dynLineUpToggle_text", "fontSize", isLineUp and "10"     or "10")
 	end
 
 -- ──────────────────────────────────────────────────────────────
