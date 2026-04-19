@@ -687,7 +687,11 @@
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_templateVis")
 		end
-		rebuildXML()
+		-- Update settings button highlight
+		self.UI.setAttribute("settingsBtn", "colors",    BTN_STYLE[settingsOpen and "active" or "settings"].colors)
+		self.UI.setAttribute("settingsBtn", "textColor", BTN_STYLE[settingsOpen and "active" or "settings"].textColor)
+		-- Update clear history / edit history button labels
+		self.UI.setAttribute("clearHistoryPanel", "active", settingsOpen and "True" or "False")
 	end
 	
 	-- SetTemplate button toggle
