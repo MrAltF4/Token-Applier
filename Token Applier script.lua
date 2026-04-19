@@ -84,6 +84,7 @@
 	local rebuildHUD
 	local hudRebuildPending = false
 	local injectContextMenu
+	local refreshDynamicPanelSlots
 
 -- ──────────────────────────────────────────────────────────────
 --  BUTTON STYLES
@@ -436,18 +437,19 @@
 		rebuildHUD()
 		-- Restore dynamic panel if a model with tokens is still selected
 		Wait.time(function()
-		if dynPanelVisible then
-			local guid = lastSelectedGUID
-			if guid then
-				local tokens = findTokensForTarget(guid)
-				if #tokens > 0 then
-					lastSelectedGUID = nil
-					showDynamicPanel(guid, #tokens)
+			if dynPanelVisible then
+				local guid = lastSelectedGUID
+				if guid then
+					local tokens = findTokensForTarget(guid)
+					if #tokens > 0 then
+						self.UI.setAttribute("dynamicPanel",    "active", "True")
+						UI.setAttribute("tc_hud_dynPanel",      "active", "True")
+						refreshDynamicPanelSlots(guid)
+					end
 				end
 			end
-		end
-	end, 0.2)
-end
+		end, 0.2)
+	end
 -- ──────────────────────────────────────────────────────────────
 --  HISTORY EDIT OVERLAY
 -- ──────────────────────────────────────────────────────────────
@@ -797,6 +799,49 @@ end
 			UI.setAttribute(hudSlotId,      "textColor", BTN_STYLE[slotStyle].textColor)
 		end
 	end
+
+	--improved dyn_btn animations
+	function refreshDynamicPanelSlots(targetGUID)
+		local tokens = findTokensForTarget(targetGUID)
+		local count  = #tokens
+
+		local showSpread = count >= 2
+		self.UI.setAttribute("dynSpreadUp",     "active", showSpread and "True" or "False")
+		self.UI.setAttribute("dynSpreadDown",   "active", showSpread and "True" or "False")
+		UI.setAttribute("tc_hud_dynSpreadUp",   "active", showSpread and "True" or "False")
+		UI.setAttribute("tc_hud_dynSpreadDown", "active", showSpread and "True" or "False")
+
+		for i = 1, MAX_TOKENS do
+			local slotActive = (i <= count)
+			local tGUID      = tokens[i]
+			local slotId     = "dynSlot_" .. i
+			local hudSlotId  = "tc_hud_dynSlot_" .. i
+
+			self.UI.setAttribute(slotId,              "active", slotActive and "True" or "False")
+			self.UI.setAttribute("dynRemove_" .. i,   "active", slotActive and "True" or "False")
+			UI.setAttribute(hudSlotId,                "active", slotActive and "True" or "False")
+			UI.setAttribute("tc_hud_dynRemove_" .. i, "active", slotActive and "True" or "False")
+
+			if slotActive and tGUID then
+				local name      = getTokenName(tGUID)
+				local isSelected = (selectedTokenGUID == tGUID)
+				local slotStyle  = isSelected and "dynSlotSelected" or "dynSlot"
+				local label      = shortName(stripBBCode(name), 35, 2)
+				local hudLabel   = shortName(stripBBCode(name), 14, 2)
+
+				self.UI.setAttribute(slotId, "text",      label)
+				self.UI.setAttribute(slotId, "colors",    BTN_STYLE[slotStyle].colors)
+				self.UI.setAttribute(slotId, "textColor", BTN_STYLE[slotStyle].textColor)
+				UI.setAttribute(hudSlotId,   "text",      hudLabel)
+				UI.setAttribute(hudSlotId,   "colors",    BTN_STYLE[slotStyle].colors)
+				UI.setAttribute(hudSlotId,   "textColor", BTN_STYLE[slotStyle].textColor)
+
+				self.setVar("removeSlot_" .. i, tGUID)
+				self.setVar("selectSlot_"  .. i, tGUID)
+			end
+		end
+	end
+
 
 -- ──────────────────────────────────────────────────────────────
 --  OBJECT XML UI
@@ -1561,12 +1606,10 @@ end
 		invalidateTargetMap()
 	    local newTokens = prevTarget and findTokensForTarget(prevTarget) or {}
 	    if #newTokens > 0 then
-	        -- Force a refresh by resetting lastSelectedGUID so showDynamicPanel rebuilds
-	        lastSelectedGUID = nil
-	        showDynamicPanel(prevTarget, #newTokens)
-	    else
-	        hideDynamicPanel()
-	    end
+			refreshDynamicPanelSlots(prevTarget)
+		else
+			hideDynamicPanel()
+		end
 	    local targetObj  = prevTarget and getObjectFromGUID(prevTarget)
 	    local targetName = targetObj and targetObj.getName() or "Unknown"
 	    printToColor("Removed token: " .. name, playerColor, { 1, 0.5, 0.5 })
