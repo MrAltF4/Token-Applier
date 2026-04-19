@@ -29,6 +29,12 @@ The last 8 used templates are stored and displayed as a clickable grid with thum
 ### Multi-Token Support Per Model
 Up to 6 tokens can be attached to a single model simultaneously. Tokens arrange themselves in a **radial spread** or **line-up** layout, both independently configurable per model.
 
+### Token Modifiers
+Adjust scale, height, rotation, flip, and spread distance on your tokens. Leave nothing selected to apply changes to all tokens on a model at once, or select a specific token to modify just that one.
+
+### Self-Contained Design
+Token Applier is a single controller object. Drop it into any TTS table or mod and it works immediately, no setup or configuration required. Players can bring it to any game, and mod makers can bundle it directly into their own mods.
+
 ---
 
 ## 🎮 Gameplay Features
