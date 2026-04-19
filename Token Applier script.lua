@@ -86,6 +86,7 @@
 	local injectContextMenu
 	local refreshDynamicPanelSlots
 	local refreshHistorySlots
+	local refreshPreviewIndicator
 
 -- ──────────────────────────────────────────────────────────────
 --  BUTTON STYLES
@@ -436,6 +437,7 @@
 		spawnPreview()
 		-- Update history slot highlights
 		refreshHistorySlots()
+		refreshPreviewIndicator()
 		-- Update size warning
 		if templateCache.byteSize > 5000 then
 			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
@@ -488,6 +490,7 @@
 		end
 		saveState()
 		refreshTemplateButton()
+		refreshPreviewIndicator()
 		
 		refreshHistorySlots()
 		if #tokenHistory == 0 then
@@ -932,24 +935,22 @@
 	    local lines = {}
 
 	    -- ── Preview indicator ──
-	    local previewImage  = templateCache.imageURL
-	    local previewText   = templateCache.name
-	    local previewActive = (templateJSON ~= nil) and "True" or "False"
+		local previewImage  = templateCache.imageURL
+		local previewText   = templateCache.name
+		local previewActive = (templateJSON ~= nil) and "True" or "False"
+		local hasImage      = previewImage ~= ""
 
-	    table.insert(lines, '<Panel id="previewPanel"')
-	    table.insert(lines,   ' active="' .. previewActive .. '"')
-	    table.insert(lines,   ' position="0 0 -100"')
-	    table.insert(lines,   ' rotation="0 0 0"')
-	    table.insert(lines,   ' width="300" height="300"')
-	    table.insert(lines,   ' color="#00000000">')
-	    if previewImage ~= "" then
-	        table.insert(lines, '  <Image image="' .. previewImage .. '" width="150" height="150" preserveAspect="true" />')
-	    else
-	        table.insert(lines, '  <Panel width="150" height="150" color="#000000CC" rectAlignment="MiddleCenter">')
-	        table.insert(lines, '    <Text text="' .. previewText .. '" fontSize="22" color="#FFFFFF" fontStyle="Bold" alignment="MiddleCenter" width="140" height="140" />')
-	        table.insert(lines, '  </Panel>')
-	    end
-	    table.insert(lines, '</Panel>')
+		table.insert(lines, '<Panel id="previewPanel"')
+		table.insert(lines, '  active="' .. previewActive .. '"')
+		table.insert(lines, '  position="0 0 -100"')
+		table.insert(lines, '  rotation="0 0 0"')
+		table.insert(lines, '  width="300" height="300"')
+		table.insert(lines, '  color="#00000000">')
+		table.insert(lines, '  <Image id="previewImg" image="' .. previewImage .. '" width="150" height="150" preserveAspect="true" active="' .. (hasImage and "True" or "False") .. '" />')
+		table.insert(lines, '  <Panel id="previewTextPanel" width="150" height="150" color="#000000CC" rectAlignment="MiddleCenter" active="' .. (hasImage and "False" or "True") .. '">')
+		table.insert(lines, '    <Text id="previewText" text="' .. previewText .. '" fontSize="22" color="#FFFFFF" fontStyle="Bold" alignment="MiddleCenter" width="140" height="140" />')
+		table.insert(lines, '  </Panel>')
+		table.insert(lines, '</Panel>')
 
 	    -- ── History grid ──
 	    table.insert(lines, '<Panel id="historyPanel"')
@@ -1713,6 +1714,18 @@
 	    self.UI.setAttribute("setTemplateBtn_text", "text", templateCache.label)
 	end
 
+	-- refresh Preview indicator
+	refreshPreviewIndicator = function()
+		local previewImage  = templateCache.imageURL
+		local previewText   = templateCache.name
+		local previewActive = templateJSON ~= nil and "True" or "False"
+		self.UI.setAttribute("previewPanel",     "active",  previewActive)
+		self.UI.setAttribute("previewImg",       "image",   previewImage)
+		self.UI.setAttribute("previewImg",       "active",  previewImage ~= "" and "True" or "False")
+		self.UI.setAttribute("previewTextPanel", "active",  previewImage == "" and previewActive or "False")
+		self.UI.setAttribute("previewText",      "text",    previewText)
+	end
+
 -- ──────────────────────────────────────────────────────────────
 --  REMOVE HANDLERS  (unchanged)
 -- ──────────────────────────────────────────────────────────────
@@ -2027,6 +2040,7 @@
 	    refreshTemplateButton()
 	    spawnPreview()
 	    refreshHistorySlots()
+		refreshPreviewIndicator()
 		
 		-- Update size warning
 		if templateCache.byteSize > 5000 then
@@ -2080,6 +2094,7 @@
 	    saveState()
 	    refreshTemplateButton()
 	    refreshHistorySlots()
+		refreshPreviewIndicator()
 	    printToAll("Token history cleared.", { 1, 0.8, 0.3 })
 	end
 
@@ -2180,6 +2195,7 @@
 	    refreshTemplateButton()
 	    spawnPreview()
 	    refreshHistorySlots()
+		refreshPreviewIndicator()
 		-- Update size warning
 		if templateCache.byteSize > 5000 then
 			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
