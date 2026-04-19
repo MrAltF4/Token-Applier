@@ -599,7 +599,6 @@
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_templateVis")
-			UI.hide("tc_hud_dynPanel")
 			UI.hide("tc_hud_root")
 			UI.hide("tc_hud_dynPanel")
 			UI.hide("tc_hud_sizeWarning")
@@ -613,6 +612,7 @@
 		hudEnabled = not hudEnabled
 		if hudEnabled then
 			hudVisible = true
+			UI.show("tc_hud_root")
 			UI.show("tc_hud_core")
 			UI.show("tc_hud_minimize")
 			UI.show("tc_hud_settings")
