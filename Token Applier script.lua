@@ -85,6 +85,7 @@
 	local hudRebuildPending = false
 	local injectContextMenu
 	local refreshDynamicPanelSlots
+	local refreshHistorySlots
 
 -- ──────────────────────────────────────────────────────────────
 --  BUTTON STYLES
@@ -434,15 +435,7 @@
 		refreshTemplateButton()
 		spawnPreview()
 		-- Update history slot highlights
-		for i = 1, HISTORY_MAX do
-			local e        = tokenHistory[i]
-			local isActive = e and (templateJSON == e.json)
-			local style    = isActive and "active" or (e and "historySlot" or "ghost")
-			self.UI.setAttribute("histBtn" .. i,   "colors",    BTN_STYLE[style].colors)
-			self.UI.setAttribute("histBtn" .. i,   "textColor", BTN_STYLE[style].textColor)
-			UI.setAttribute("tc_hud_hist_" .. i,   "colors",    BTN_STYLE[style].colors)
-			UI.setAttribute("tc_hud_hist_" .. i,   "textColor", BTN_STYLE[style].textColor)
-		end
+		refreshHistorySlots()
 		-- Update size warning
 		if templateCache.byteSize > 5000 then
 			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
@@ -463,9 +456,21 @@
 	-- HistoryEdit button
 	function btn_toggleHistoryEdit(_, _)
 		historyEditMode = not historyEditMode
-		rebuildXML()
-		rebuildHUD()
+		-- Show/hide delete overlay panels
+		if historyEditMode then
+			self.UI.show("deleteOverlayPanel")
+			UI.show("tc_hud_deleteOverlayPanel")
+		else
+			self.UI.hide("deleteOverlayPanel")
+			UI.hide("tc_hud_deleteOverlayPanel")
+		end
+		-- Update Edit History button style and label in OUI settings
+		local style = historyEditMode and "danger" or "settingsItem"
+		self.UI.setAttribute("editHistoryBtn",    "colors",    BTN_STYLE[style].colors)
+		self.UI.setAttribute("editHistoryBtn",    "textColor", BTN_STYLE[style].textColor)
 	end
+	
+	
 	
 	local function deleteHistoryEntry(index)
 		if not tokenHistory[index] then return end
@@ -483,8 +488,13 @@
 		end
 		saveState()
 		refreshTemplateButton()
-		rebuildXML()
-		rebuildHUD()
+		
+		refreshHistorySlots()
+		if #tokenHistory == 0 then
+			historyEditMode = false
+			self.UI.hide("deleteOverlayPanel")
+			UI.hide("tc_hud_deleteOverlayPanel")
+		end
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -499,8 +509,8 @@
 	function btn_history_6(_, _) activateHistoryEntry(6) end
 	function btn_history_7(_, _) activateHistoryEntry(7) end
 	function btn_history_8(_, _) activateHistoryEntry(8) end
-	
-	-- DeleteHistory HANDLERS
+
+	-- OUI DeleteHistory HANDLERS
 	function btn_deleteHistory_1(_, _) deleteHistoryEntry(1) end
 	function btn_deleteHistory_2(_, _) deleteHistoryEntry(2) end
 	function btn_deleteHistory_3(_, _) deleteHistoryEntry(3) end
@@ -509,6 +519,16 @@
 	function btn_deleteHistory_6(_, _) deleteHistoryEntry(6) end
 	function btn_deleteHistory_7(_, _) deleteHistoryEntry(7) end
 	function btn_deleteHistory_8(_, _) deleteHistoryEntry(8) end
+
+	-- HUD DeleteHistory HANDLERS
+	function hud_deleteHistory_1(player, _, _) deleteHistoryEntry(1) end
+	function hud_deleteHistory_2(player, _, _) deleteHistoryEntry(2) end
+	function hud_deleteHistory_3(player, _, _) deleteHistoryEntry(3) end
+	function hud_deleteHistory_4(player, _, _) deleteHistoryEntry(4) end
+	function hud_deleteHistory_5(player, _, _) deleteHistoryEntry(5) end
+	function hud_deleteHistory_6(player, _, _) deleteHistoryEntry(6) end
+	function hud_deleteHistory_7(player, _, _) deleteHistoryEntry(7) end
+	function hud_deleteHistory_8(player, _, _) deleteHistoryEntry(8) end
 
 -- ──────────────────────────────────────────────────────────────
 --  HUD HISTORY HANDLERS
@@ -810,6 +830,56 @@
 		end
 	end
 
+	--refresh history slots using setAttribute system (prevent need for rebuilds)
+	refreshHistorySlots = function()
+		for i = 1, HISTORY_MAX do
+			local entry    = tokenHistory[i]
+			local isActive = entry and (templateJSON == entry.json)
+			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
+			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
+			local imgURL   = hasImage and entry.imageURL or ""
+			local txtLabel = entry and shortName(stripBBCode(entry.name), 5, 3) or "·"
+			local txtColor = entry and "#FFFFFF" or "#404040"
+			local hudLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
+			local hudColor = entry and "#FFFFFF" or "#303030"
+
+			-- OUI slot
+			self.UI.setAttribute("histBtn" .. i,         "colors",    BTN_STYLE[style].colors)
+			self.UI.setAttribute("histBtn" .. i,         "textColor", BTN_STYLE[style].textColor)
+			self.UI.setAttribute("histBtn" .. i .. "_img", "image",   imgURL)
+			self.UI.setAttribute("histBtn" .. i .. "_img", "active",  hasImage and "True" or "False")
+			self.UI.setAttribute("histBtn" .. i .. "_txt", "text",    txtLabel)
+			self.UI.setAttribute("histBtn" .. i .. "_txt", "color",   txtColor)
+			self.UI.setAttribute("histBtn" .. i .. "_txt", "active",  hasImage and "False" or "True")
+
+			-- HUD slot
+			UI.setAttribute("tc_hud_hist_" .. i,              "colors",    BTN_STYLE[style].colors)
+			UI.setAttribute("tc_hud_hist_" .. i,              "textColor", BTN_STYLE[style].textColor)
+			UI.setAttribute("tc_hud_hist_" .. i .. "_img",    "image",     imgURL)
+			UI.setAttribute("tc_hud_hist_" .. i .. "_img",    "active",    hasImage and "True" or "False")
+			UI.setAttribute("tc_hud_hist_" .. i .. "_txt",    "text",      hudLabel)
+			UI.setAttribute("tc_hud_hist_" .. i .. "_txt",    "color",     hudColor)
+			UI.setAttribute("tc_hud_hist_" .. i .. "_txt",    "active",    hasImage and "False" or "True")
+			
+			-- OUI delete overlay slot
+			local delEntry = tokenHistory[i]
+			if delEntry and delEntry.imageURL and delEntry.imageURL ~= "" then
+				self.UI.setAttribute("delBtn" .. i, "image", delEntry.imageURL)
+			end
+
+			-- HUD delete overlay slot  
+			if delEntry and delEntry.imageURL and delEntry.imageURL ~= "" then
+				UI.setAttribute("tc_hud_delBtn" .. i, "image", delEntry.imageURL)
+			end
+			
+			-- Update overlay slot images
+			self.UI.setAttribute("delBtn" .. i .. "_img",        "image",  imgURL)
+			self.UI.setAttribute("delBtn" .. i .. "_img",        "active", hasImage and "True" or "False")
+			UI.setAttribute("tc_hud_delBtn" .. i .. "_img",      "image",  imgURL)
+			UI.setAttribute("tc_hud_delBtn" .. i .. "_img",      "active", hasImage and "True" or "False")
+		end
+	end
+
 	--improved dyn_btn animations
 	function refreshDynamicPanelSlots(targetGUID)
 		local tokens = findTokensForTarget(targetGUID)
@@ -853,6 +923,7 @@
 	end
 
 
+
 -- ──────────────────────────────────────────────────────────────
 --  OBJECT XML UI
 -- ──────────────────────────────────────────────────────────────
@@ -887,44 +958,62 @@
 	    table.insert(lines,   ' width="448" height="228"')
 	    table.insert(lines,   ' color="#00000000">')
 	    table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
-	    for i = 1, HISTORY_MAX do
+	   for i = 1, HISTORY_MAX do
 			local entry    = tokenHistory[i]
 			local isActive = entry and (templateJSON == entry.json)
+			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
+			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
+			local imgURL   = hasImage and entry.imageURL or ""
+			local txtLabel = entry and shortName(stripBBCode(entry.name), 5, 3) or "·"
+			local txtColor = entry and "#FFFFFF" or "#404040"
+			local txtSize  = entry and "20" or "20"
 
-			if historyEditMode and entry then
-				-- Edit mode: render X button in place of history button
-				table.insert(lines, '    <Button onClick="btn_deleteHistory_' .. i .. '"')
-				table.insert(lines, '      ' .. btnStyle("danger"))
-				table.insert(lines, '      width="100" height="100"')
-				table.insert(lines, '      padding="3 3 3 3">')
-				if entry.imageURL and entry.imageURL ~= "" then
-					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
-				end
-				-- Red transparent overlay layer
-				table.insert(lines, '      <Panel width="100" height="100" color="#AA000066" />')
-				table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="50" alignment="MiddleCenter" /></Button>')
-			else
-				-- Normal mode: render history button as usual
-				local style  = isActive and "active" or (entry and "historySlot" or "ghost")
-				local fnName = "btn_history_" .. i
-				table.insert(lines, '    <Button id="histBtn' .. i .. '"')
-				table.insert(lines, '      onClick="' .. fnName .. '"')
-				table.insert(lines, '      ' .. btnStyle(style))
-				table.insert(lines, '      width="100" height="100"')
-				table.insert(lines, '      padding="3 3 3 3">')
-				if entry and entry.imageURL and entry.imageURL ~= "" then
-					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
-				elseif entry then
-					local display = shortName(stripBBCode(entry.name), 5, 3)
-					table.insert(lines, '      <Text text="' .. display .. '" fontSize="20" color="#FFFFFF" alignment="MiddleCenter" width="80" height="80" />')
-				else
-					table.insert(lines, '      <Text text="·" fontSize="20" color="#404040" alignment="MiddleCenter" width="58" height="58" />')
-				end
-				table.insert(lines, '    </Button>')
-			end
+			table.insert(lines, '    <Button id="histBtn' .. i .. '"')
+			table.insert(lines, '      onClick="btn_history_' .. i .. '"')
+			table.insert(lines, '      ' .. btnStyle(style))
+			table.insert(lines, '      width="100" height="100"')
+			table.insert(lines, '      padding="3 3 3 3">')
+			table.insert(lines, '      <Image id="histBtn' .. i .. '_img"')
+			table.insert(lines, '        image="' .. imgURL .. '"')
+			table.insert(lines, '        width="100" height="100"')
+			table.insert(lines, '        preserveAspect="true"')
+			table.insert(lines, '        active="' .. (hasImage and "True" or "False") .. '" />')
+			table.insert(lines, '      <Text id="histBtn' .. i .. '_txt"')
+			table.insert(lines, '        text="' .. txtLabel .. '"')
+			table.insert(lines, '        fontSize="' .. txtSize .. '"')
+			table.insert(lines, '        color="' .. txtColor .. '"')
+			table.insert(lines, '        alignment="MiddleCenter"')
+			table.insert(lines, '        width="80" height="80"')
+			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
+			table.insert(lines, '    </Button>')
 		end
 	    table.insert(lines, '  </GridLayout>')
 	    table.insert(lines, '</Panel>')
+		
+		
+		-- ── Delete overlay panel ──
+		table.insert(lines, '<Panel id="deleteOverlayPanel"')
+		table.insert(lines, '  active="False"')
+		table.insert(lines, '  position="0 -380 -25"')
+		table.insert(lines, '  rotation="0 0 0"')
+		table.insert(lines, '  width="448" height="228"')
+		table.insert(lines, '  color="#00000000">')
+		table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
+		for i = 1, HISTORY_MAX do
+			local entry = tokenHistory[i]
+			table.insert(lines, '    <Button id="delBtn' .. i .. '"')
+			table.insert(lines, '      onClick="btn_deleteHistory_' .. i .. '"')
+			table.insert(lines, '      ' .. btnStyle("danger"))
+			table.insert(lines, '      width="100" height="100"')
+			table.insert(lines, '      padding="3 3 3 3">')
+			if entry and entry.imageURL and entry.imageURL ~= "" then
+				table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
+			end
+			table.insert(lines, '      <Panel width="100" height="100" color="#AA000066" />')
+			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="50" alignment="MiddleCenter" /></Button>')
+		end
+		table.insert(lines, '  </GridLayout>')
+		table.insert(lines, '</Panel>')
 
 	    -- ── Settings button ──
 	    table.insert(lines, '<Button id="settingsBtn"')
@@ -951,7 +1040,7 @@
 		table.insert(lines, '  color="#2B1A00F2">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
 		table.insert(lines, '    <Button onClick="btn_clearHistory" tooltip="Clear all token history and reset template" ' .. btnStyle("danger") .. ' fontSize="22" preferredWidth="214" preferredHeight="60"><Text text="Clear History ✕" color="' .. BTN_STYLE.danger.textColor .. '" fontSize="22" /></Button>')
-		table.insert(lines, '    <Button onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(historyEditMode and "danger" or "settingsItem") .. ' fontSize="22" preferredWidth="214" preferredHeight="60"><Text text="' .. (historyEditMode and "Delete →" or "Edit History") .. '" color="' .. BTN_STYLE[historyEditMode and "danger" or "settingsItem"].textColor .. '" fontSize="22" /></Button>')
+		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(historyEditMode and "danger" or "settingsItem") .. ' fontSize="22" preferredWidth="214" preferredHeight="60"><Text text="' .. (historyEditMode and "Delete →" or "Edit History") .. '" color="' .. BTN_STYLE[historyEditMode and "danger" or "settingsItem"].textColor .. '" fontSize="22" /></Button>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 		
@@ -1218,41 +1307,62 @@
 	    for i = 1, HISTORY_MAX do
 			local entry    = tokenHistory[i]
 			local isActive = entry and (templateJSON == entry.json)
-			local fnName   = g .. "/hud_history_" .. i
+			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
+			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
+			local imgURL   = hasImage and entry.imageURL or ""
+			local txtLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
+			local txtColor = entry and "#FFFFFF" or "#303030"
 
-			if historyEditMode and entry then
-				table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
-				table.insert(lines, '      onClick="' .. g .. '/btn_deleteHistory_' .. i .. '"')
-				table.insert(lines, '      ' .. btnStyle("danger"))
-				table.insert(lines, '      width="54" height="54"')
-				table.insert(lines, '      padding="2 2 2 2">')
-				if entry.imageURL and entry.imageURL ~= "" then
-					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
-				end
-				table.insert(lines, '      <Panel width="54" height="54" color="#AA000066" />')
-				table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="28" alignment="MiddleCenter" /></Button>')
-			else
-				local style  = isActive and "active" or (entry and "historySlot" or "ghost")
-				table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
-				table.insert(lines, '      onClick="' .. fnName .. '"')
-				table.insert(lines, '      ' .. btnStyle(style))
-				table.insert(lines, '      width="54" height="54"')
-				table.insert(lines, '      padding="2 2 2 2">')
-				if entry and entry.imageURL and entry.imageURL ~= "" then
-					table.insert(lines, '      <Image image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
-				elseif entry then
-					local display = shortName(stripBBCode(entry.name), 4, 2)
-					table.insert(lines, '      <Text text="' .. display .. '" fontSize="14" color="#FFFFFF" alignment="MiddleCenter" />')
-				else
-					table.insert(lines, '      <Text text="·" fontSize="16" color="#303030" alignment="MiddleCenter" />')
-				end
-				table.insert(lines, '    </Button>')
-			end
+			table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
+			table.insert(lines, '      onClick="' .. g .. '/hud_history_' .. i .. '"')
+			table.insert(lines, '      ' .. btnStyle(style))
+			table.insert(lines, '      width="54" height="54"')
+			table.insert(lines, '      padding="2 2 2 2">')
+			table.insert(lines, '      <Image id="tc_hud_hist_' .. i .. '_img"')
+			table.insert(lines, '        image="' .. imgURL .. '"')
+			table.insert(lines, '        width="50" height="50"')
+			table.insert(lines, '        preserveAspect="true"')
+			table.insert(lines, '        active="' .. (hasImage and "True" or "False") .. '" />')
+			table.insert(lines, '      <Text id="tc_hud_hist_' .. i .. '_txt"')
+			table.insert(lines, '        text="' .. txtLabel .. '"')
+			table.insert(lines, '        fontSize="14"')
+			table.insert(lines, '        color="' .. txtColor .. '"')
+			table.insert(lines, '        alignment="MiddleCenter"')
+			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
+			table.insert(lines, '    </Button>')
 		end
 
 	    table.insert(lines, '    </GridLayout>')
 		table.insert(lines, '  </VerticalLayout>')
-		table.insert(lines, '</Panel>') -- end tc_hud_core
+		
+		table.insert(lines, '</Panel><!--tc_hud_core-->') -- end tc_hud_core
+		
+		
+		-- ── HUD Delete overlay panel ──
+		table.insert(lines, '<Panel id="tc_hud_deleteOverlayPanel"')
+		table.insert(lines, '  active="False"')
+		table.insert(lines, '  rectAlignment="LowerCenter"')
+		table.insert(lines, '  offsetXY="0 31"')  --attempt to move the location of this panel
+		table.insert(lines, '  width="225" height="111"')
+		table.insert(lines, '  color="#00000000">')
+		table.insert(lines, '  <GridLayout cellSize="54 54" spacing="3 3" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="225" height="111">')
+		for i = 1, HISTORY_MAX do
+			local entry = tokenHistory[i]
+			local g = guid
+			table.insert(lines, '    <Button id="tc_hud_delBtn' .. i .. '"')
+			table.insert(lines, '      onClick="' .. g .. '/hud_deleteHistory_' .. i .. '"')
+			table.insert(lines, '      ' .. btnStyle("danger"))
+			table.insert(lines, '      width="54" height="54"')
+			table.insert(lines, '      padding="2 2 2 2">')
+			if entry and entry.imageURL and entry.imageURL ~= "" then
+				table.insert(lines, '      <Image id="tc_hud_delBtn' .. i .. '_img" image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
+			end
+			table.insert(lines, '      <Panel width="54" height="54" color="#AA000066" />')
+			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="28" alignment="MiddleCenter" /></Button>')
+		end
+		table.insert(lines, '  </GridLayout>')
+		table.insert(lines, '</Panel><!--tc_hud_deleteOverlayPanel-->') -- end deleteOverlayPanel
+	
 
 	    -- ── Minimize footer bar ──
 	    -- Spans the CORE width, sits below it
@@ -1365,7 +1475,7 @@
 		table.insert(lines, '      >' .. (hudDraggable and "Drag: ON" or "Drag: OFF") .. '</Button>')
 		
 	    table.insert(lines, '  </VerticalLayout>')
-	    table.insert(lines, '</Panel>') -- end tc_hud_settingsPanel
+	    table.insert(lines, '</Panel><!--tc_hud_settingsPanel-->') -- end tc_hud_settingsPanel
 
 	    -- ── Restore-Token(s) position button ──
 	    table.insert(lines, '<Button id="tc_hud_restore_tokens"')
@@ -1505,9 +1615,9 @@
 			table.insert(lines, '    fontSize="18"><Text text="✕" color="#FFFFFF" width="' .. HRW .. '" height="' .. HBW .. '" alignment="MiddleCenter" /></Button>')
 		end
 
-				table.insert(lines, '</Panel>') -- end tc_hud_dynPanel
+				table.insert(lines, '</Panel><!--tc_hud_dynPanel-->') -- end tc_hud_dynPanel
 
-			table.insert(lines, '</Panel>') -- end tc_hud_root
+			table.insert(lines, '</Panel><!--tc_hud_root-->') -- end tc_hud_root
 			
 		-- ── Minimised-restore button ──
 	    table.insert(lines, '<Button id="tc_hud_restore"')
@@ -1543,7 +1653,7 @@
 			end
 		end
 
-		table.insert(lines, '</Panel>') -- end tc_hud_placementOverlay
+		table.insert(lines, '</Panel><!--tc_hud_placementOverlay-->') -- end tc_hud_placementOverlay
 		
 	    return table.concat(lines, "\n")
 	end
@@ -1566,19 +1676,26 @@
 			local existing = UI.getXml() or ""
 			existing = existing:gsub("%s+$", "")
 			-- Only strip elements that need content rebuilds
-			existing = stripBetween(existing, '<Panel id="tc_hud_core"',          '</Panel>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_core"', '</Panel><!--tc_hud_core-->')
+			if existing:find('<Panel id="tc_hud_core"', 1, true) then
+				existing = stripBetween(existing, '<Panel id="tc_hud_core"', '</Panel>')
+			end
 			existing = stripBetween(existing, '<Button id="tc_hud_minimize"',     '</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_settings"',     '</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_off"',          '</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_setTemplate"',  '</Button>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_settingsPanel"', '</Panel>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_settingsPanel"', '</Panel><!--tc_hud_settingsPanel-->')
 			existing = stripBetween(existing, '<Button id="tc_hud_restore_tokens"','</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_templateVis"',  '</Button>')
 			existing = stripBetween(existing, '<Button id="tc_hud_restore"',      '</Button>')
 			existing = stripBetween(existing, '<Panel id="tc_hud_sizeWarning"', '</Panel>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"', '</Panel>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_root"', '</Panel>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_placementOverlay"', '</Panel>')
+			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"',      '</Panel><!--tc_hud_dynPanel-->')
+			existing = stripBetween(existing, '<Panel id="tc_hud_root"',          '</Panel><!--tc_hud_root-->')
+			existing = stripBetween(existing, '<Panel id="tc_hud_placementOverlay"', '</Panel><!--tc_hud_placementOverlay-->')
+			existing = stripBetween(existing, '<Panel id="tc_hud_deleteOverlayPanel"', '</Panel><!--tc_hud_deleteOverlayPanel-->')
+			if existing:find('<Panel id="tc_hud_deleteOverlayPanel"', 1, true) then
+				existing = stripBetween(existing, '<Panel id="tc_hud_deleteOverlayPanel"', '</Panel>')
+			end
 			existing = existing:gsub("%s+$", "")
 			UI.setXml(existing .. "\n" .. hudXml)
 			--print("[Debug] hudRootOffsetXY at rebuild: " .. tostring(hudRootOffsetXY))
@@ -1913,9 +2030,24 @@
 	    saveState()
 	    refreshTemplateButton()
 	    spawnPreview()
-	    rebuildXML()
-	    rebuildHUD()
-
+	    refreshHistorySlots()
+		
+		-- Update size warning
+		if templateCache.byteSize > 5000 then
+			self.UI.setAttribute("sizeWarningPanel", "active", "True")
+			self.UI.setAttribute("sizeWarningPanel", "color",  templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2")
+			UI.setAttribute("tc_hud_sizeWarning", "active", "True")
+			UI.setAttribute("tc_hud_sizeWarning", "color",  templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF")
+		else
+			self.UI.setAttribute("sizeWarningPanel", "active", "False")
+			UI.setAttribute("tc_hud_sizeWarning",    "active", "False")
+		end
+		-- Update HUD Set Template button
+		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
+		local tcLabel = templateJSON and tcShort or "No Template"
+		UI.setAttribute("tc_hud_setTemplate", "text", tcLabel)
+		refreshTemplateButton()
+		
 	    collisionCooldown = true
 	    Wait.time(function() collisionCooldown = false end, 2.0)
 
@@ -1944,8 +2076,7 @@
 	    end
 	    saveState()
 	    refreshTemplateButton()
-	    rebuildXML()
-	    rebuildHUD()
+	    refreshHistorySlots()
 	    printToAll("Token history cleared.", { 1, 0.8, 0.3 })
 	end
 
@@ -2045,8 +2176,23 @@
 	    saveState()
 	    refreshTemplateButton()
 	    spawnPreview()
-	    rebuildXML()
-	    rebuildHUD()
+	    refreshHistorySlots()
+		-- Update size warning
+		if templateCache.byteSize > 5000 then
+			self.UI.setAttribute("sizeWarningPanel", "active", "True")
+			self.UI.setAttribute("sizeWarningPanel", "color",  templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2")
+			UI.setAttribute("tc_hud_sizeWarning", "active", "True")
+			UI.setAttribute("tc_hud_sizeWarning", "color",  templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF")
+		else
+			self.UI.setAttribute("sizeWarningPanel", "active", "False")
+			UI.setAttribute("tc_hud_sizeWarning",    "active", "False")
+		end
+		-- Update HUD Set Template button
+		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
+		local tcLabel = templateJSON and tcShort or "No Template"
+		UI.setAttribute("tc_hud_setTemplate", "text", tcLabel)
+		refreshTemplateButton()
+		
 	    printToColor("Template set from: " .. name, playerColor, { 0.3, 1, 0.5 })
 	end
 
