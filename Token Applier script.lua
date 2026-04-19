@@ -1120,20 +1120,18 @@
 		templateLabel = templateLabel .. sizeWarning
 		
 		-- ── Size warning panel ──
-		if templateCache.byteSize > 5000 then
-			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
-			local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
-			table.insert(lines, '<Panel id="sizeWarningPanel"')
-			table.insert(lines, '  active="True"')
-			table.insert(lines, '  position="0 -230 -25"')
-			table.insert(lines, '  rotation="0 0 0"')
-			table.insert(lines, '  width="448" height="36"')
-			table.insert(lines, '  color="' .. warnColor .. '">')
-			table.insert(lines, '  <Text text="' .. warnText .. '" fontSize="18" color="#FFAA44" alignment="MiddleCenter" />')
-			table.insert(lines, '</Panel>')
-		else
-			table.insert(lines, '<Panel id="sizeWarningPanel" active="False" width="448" height="36" />')
-		end
+		local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
+		local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
+		local warnActive = templateCache.byteSize > 5000 and "True" or "False"
+		table.insert(lines, '<Panel id="sizeWarningPanel"')
+		table.insert(lines, '  active="' .. warnActive .. '"')
+		table.insert(lines, '  position="0 -230 -25"')
+		table.insert(lines, '  rotation="0 0 0"')
+		table.insert(lines, '  width="448" height="36"')
+		table.insert(lines, '  color="' .. warnColor .. '">')
+		table.insert(lines, '  <Text id="sizeWarningText" text="' .. warnText .. '" fontSize="18" color="#FFAA44" alignment="MiddleCenter" />')
+		table.insert(lines, '</Panel>')
+
 
 	    -- ── Dynamic panel ──
 	    -- Buttons are direct children of the panel, positioned with
@@ -1416,19 +1414,17 @@
 	    table.insert(lines, '  >' .. tcLabel .. '</Button>')
 		
 		-- ── Size warning ──
-		if templateCache.byteSize > 5000 then
-			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
-			local warnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
-			table.insert(lines, '<Panel id="tc_hud_sizeWarning"')
-			table.insert(lines, '  rectAlignment="LowerCenter"')
-			table.insert(lines, '  offsetXY="0 140"')
-			table.insert(lines, '  width="224" height="14"')
-			table.insert(lines, '  color="' .. warnColor .. '">')
-			table.insert(lines, '  <Text text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" />')
-			table.insert(lines, '</Panel>')
-		else
-			table.insert(lines, '<Panel id="tc_hud_sizeWarning" active="False" rectAlignment="LowerCenter" offsetXY="0 222" width="160" height="18" />')
-		end
+		local warnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
+		local warnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
+		local warnActive = templateCache.byteSize > 5000 and "True" or "False"
+		table.insert(lines, '<Panel id="tc_hud_sizeWarning"')
+		table.insert(lines, '  active="' .. warnActive .. '"')
+		table.insert(lines, '  rectAlignment="LowerCenter"')
+		table.insert(lines, '  offsetXY="0 140"')
+		table.insert(lines, '  width="224" height="14"')
+		table.insert(lines, '  color="' .. warnColor .. '">')
+		table.insert(lines, '  <Text id="tc_hud_sizeWarningText" text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" />')
+		table.insert(lines, '</Panel>')
 
 	    -- ── Settings flyout panel (Remove / Clear / Edit History) ──
 	    table.insert(lines, '<Panel id="tc_hud_settingsPanel"')
@@ -2034,14 +2030,21 @@
 		
 		-- Update size warning
 		if templateCache.byteSize > 5000 then
-			self.UI.setAttribute("sizeWarningPanel", "active", "True")
-			self.UI.setAttribute("sizeWarningPanel", "color",  templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2")
-			UI.setAttribute("tc_hud_sizeWarning", "active", "True")
-			UI.setAttribute("tc_hud_sizeWarning", "color",  templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF")
+			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
+			local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
+			self.UI.setAttribute("sizeWarningPanel",    "active", "True")
+			self.UI.setAttribute("sizeWarningPanel",    "color",  warnColor)
+			self.UI.setAttribute("sizeWarningText",     "text",   warnText)
+			local hudWarnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
+			local hudWarnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
+			UI.setAttribute("tc_hud_sizeWarning",       "active", "True")
+			UI.setAttribute("tc_hud_sizeWarning",       "color",  hudWarnColor)
+			UI.setAttribute("tc_hud_sizeWarningText",   "text",   hudWarnText)
 		else
-			self.UI.setAttribute("sizeWarningPanel", "active", "False")
-			UI.setAttribute("tc_hud_sizeWarning",    "active", "False")
+			self.UI.setAttribute("sizeWarningPanel",    "active", "False")
+			UI.setAttribute("tc_hud_sizeWarning",       "active", "False")
 		end
+		
 		-- Update HUD Set Template button
 		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
 		local tcLabel = templateJSON and tcShort or "No Template"
@@ -2179,13 +2182,19 @@
 	    refreshHistorySlots()
 		-- Update size warning
 		if templateCache.byteSize > 5000 then
-			self.UI.setAttribute("sizeWarningPanel", "active", "True")
-			self.UI.setAttribute("sizeWarningPanel", "color",  templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2")
-			UI.setAttribute("tc_hud_sizeWarning", "active", "True")
-			UI.setAttribute("tc_hud_sizeWarning", "color",  templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF")
+			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
+			local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
+			self.UI.setAttribute("sizeWarningPanel",    "active", "True")
+			self.UI.setAttribute("sizeWarningPanel",    "color",  warnColor)
+			self.UI.setAttribute("sizeWarningText",     "text",   warnText)
+			local hudWarnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
+			local hudWarnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
+			UI.setAttribute("tc_hud_sizeWarning",       "active", "True")
+			UI.setAttribute("tc_hud_sizeWarning",       "color",  hudWarnColor)
+			UI.setAttribute("tc_hud_sizeWarningText",   "text",   hudWarnText)
 		else
-			self.UI.setAttribute("sizeWarningPanel", "active", "False")
-			UI.setAttribute("tc_hud_sizeWarning",    "active", "False")
+			self.UI.setAttribute("sizeWarningPanel",    "active", "False")
+			UI.setAttribute("tc_hud_sizeWarning",       "active", "False")
 		end
 		-- Update HUD Set Template button
 		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
