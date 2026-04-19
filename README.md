@@ -1,12 +1,10 @@
 # Token Applier
-### *make ANYTHING a token. A Tabletop Simulator mod.*
+### *make ANYTHING a token.*
+##### A universal hover-token controller for Tabletop Simulator
 
 Steam Workshop page https://steamcommunity.com/sharedfiles/filedetails/?id=3691670393
 
 ---
-
-# Token Applier
-### A universal hover-token controller for Tabletop Simulator
 
 Token Applier is a self-contained controller object for TTS that lets you deploy and manage floating tokens attached to any model on the table — without ever placing a token directly on the surface. Works with any game, any miniature, any custom asset.
 
