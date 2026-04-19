@@ -2340,10 +2340,14 @@
 	        printToColor("Added token: " .. getTokenName(newGUID), playerColor, { 0.5, 1, 0.5 })
 	        printToColor("  to " .. targetName .. " (" .. targetGUID .. ")", playerColor, { 1, 1, 1 })
 		-- Force panel refresh
-		lastSelectedGUID = nil
-		local tokens = findTokensForTarget(targetGUID)
-		showDynamicPanel(targetGUID, #tokens)
-	    end)
+			lastSelectedGUID = targetGUID
+			refreshDynamicPanelSlots(targetGUID)
+			if not dynPanelVisible then
+				self.UI.setAttribute("dynamicPanel", "active", "True")
+				UI.setAttribute("tc_hud_dynPanel",   "active", "True")
+				dynPanelVisible = true
+			end
+		end)
 	end
 
 -- ──────────────────────────────────────────────────────────────
