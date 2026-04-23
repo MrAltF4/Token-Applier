@@ -671,7 +671,6 @@
 
 	function btn_selectHudPosition(player, _, id)
 		local playerColor = (type(player) == "userdata" and player.color) or player
-		-- find the offsetXY for this id
 		for _, pos in ipairs(HUD_POSITIONS) do
 			if pos.id == id then
 				hudRootOffsetXY = pos.hudXY
@@ -679,7 +678,24 @@
 			end
 		end
 		hudPlacementMode = false
+		settingsOpen = false  -- close settings so it doesn't linger
+
+		-- Hide everything before the rebuild fires
+		UI.hide("tc_hud_root")
+		UI.hide("tc_hud_core")
+		UI.hide("tc_hud_minimize")
+		UI.hide("tc_hud_settings")
+		UI.hide("tc_hud_setTemplate")
+		UI.hide("tc_hud_settingsPanel")
+		UI.hide("tc_hud_off")
+		UI.hide("tc_hud_restore_tokens")
+		UI.hide("tc_hud_templateVis")
 		UI.hide("tc_hud_placementOverlay")
+		UI.hide("tc_hud_dynPanel")
+		UI.hide("tc_hud_sizeWarning")
+		UI.hide("tc_hud_deleteOverlayPanel")
+		UI.hide("tc_hud_restore")
+
 		saveState()
 		rebuildHUD()
 	end
