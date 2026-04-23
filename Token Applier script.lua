@@ -1677,34 +1677,9 @@
 			hudRebuildPending = false
 			local guid   = self.getGUID()
 			local hudXml = buildHUDXml(guid)
-			local existing = UI.getXml() or ""
-			existing = existing:gsub("%s+$", "")
-			-- Only strip elements that need content rebuilds
-			existing = stripBetween(existing, '<Panel id="tc_hud_core"', '</Panel><!--tc_hud_core-->')
-			if existing:find('<Panel id="tc_hud_core"', 1, true) then
-				existing = stripBetween(existing, '<Panel id="tc_hud_core"', '</Panel>')
-			end
-			existing = stripBetween(existing, '<Button id="tc_hud_minimize"',     '</Button>')
-			existing = stripBetween(existing, '<Button id="tc_hud_settings"',     '</Button>')
-			existing = stripBetween(existing, '<Button id="tc_hud_off"',          '</Button>')
-			existing = stripBetween(existing, '<Button id="tc_hud_setTemplate"',  '</Button>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_settingsPanel"', '</Panel><!--tc_hud_settingsPanel-->')
-			existing = stripBetween(existing, '<Button id="tc_hud_restore_tokens"','</Button>')
-			existing = stripBetween(existing, '<Button id="tc_hud_templateVis"',  '</Button>')
-			existing = stripBetween(existing, '<Button id="tc_hud_restore"',      '</Button>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_sizeWarning"', '</Panel>')
-			existing = stripBetween(existing, '<Panel id="tc_hud_dynPanel"',      '</Panel><!--tc_hud_dynPanel-->')
-			existing = stripBetween(existing, '<Panel id="tc_hud_root"',          '</Panel><!--tc_hud_root-->')
-			existing = stripBetween(existing, '<Panel id="tc_hud_placementOverlay"', '</Panel><!--tc_hud_placementOverlay-->')
-			existing = stripBetween(existing, '<Panel id="tc_hud_deleteOverlayPanel"', '</Panel><!--tc_hud_deleteOverlayPanel-->')
-			if existing:find('<Panel id="tc_hud_deleteOverlayPanel"', 1, true) then
-				existing = stripBetween(existing, '<Panel id="tc_hud_deleteOverlayPanel"', '</Panel>')
-			end
-			existing = existing:gsub("%s+$", "")
-			UI.setXml(existing .. "\n" .. hudXml)
-			--print("[Debug] hudRootOffsetXY at rebuild: " .. tostring(hudRootOffsetXY))
-			--print("[Debug] hudVisible at rebuild: " .. tostring(hudVisible))
-			--print("[Debug] hudXml length: " .. #hudXml)
+			-- Wrap in a root panel and write the whole thing fresh
+			-- No string surgery — always a clean write
+			UI.setXml('<Panel width="1920" height="1080" color="#00000000">\n' .. hudXml .. '\n</Panel>')
 			if not hudVisible then
 				UI.hide("tc_hud_root")
 				UI.hide("tc_hud_sizeWarning")
