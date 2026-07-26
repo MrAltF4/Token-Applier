@@ -869,9 +869,12 @@
 			local hudLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
 			local hudColor = entry and "#FFFFFF" or "#303030"
 
+			local tooltipText = entry and shortName(stripBBCode(entry.name), 30, 3) or "Empty slot"
+
 			-- OUI slot
 			self.UI.setAttribute("histBtn" .. i,         "colors",    BTN_STYLE[style].colors)
 			self.UI.setAttribute("histBtn" .. i,         "textColor", BTN_STYLE[style].textColor)
+			self.UI.setAttribute("histBtn" .. i,         "tooltip",   tooltipText)
 			self.UI.setAttribute("histBtn" .. i .. "_img", "image",   imgURL)
 			self.UI.setAttribute("histBtn" .. i .. "_img", "active",  hasImage and "True" or "False")
 			self.UI.setAttribute("histBtn" .. i .. "_txt", "text",    txtLabel)
@@ -881,6 +884,7 @@
 			-- HUD slot
 			UI.setAttribute("tc_hud_hist_" .. i,              "colors",    BTN_STYLE[style].colors)
 			UI.setAttribute("tc_hud_hist_" .. i,              "textColor", BTN_STYLE[style].textColor)
+			UI.setAttribute("tc_hud_hist_" .. i,              "tooltip",   tooltipText)
 			UI.setAttribute("tc_hud_hist_" .. i .. "_img",    "image",     imgURL)
 			UI.setAttribute("tc_hud_hist_" .. i .. "_img",    "active",    hasImage and "True" or "False")
 			UI.setAttribute("tc_hud_hist_" .. i .. "_txt",    "text",      hudLabel)
@@ -991,9 +995,11 @@
 			local txtLabel = entry and shortName(stripBBCode(entry.name), 5, 3) or "·"
 			local txtColor = entry and "#FFFFFF" or "#404040"
 			local txtSize  = entry and "20" or "20"
+			local tooltipText = entry and shortName(stripBBCode(entry.name), 30, 3) or "Empty slot"
 
 			table.insert(lines, '    <Button id="histBtn' .. i .. '"')
 			table.insert(lines, '      onClick="btn_history_' .. i .. '"')
+			table.insert(lines, '      tooltip="' .. tooltipText .. '"')
 			table.insert(lines, '      ' .. btnStyle(style))
 			table.insert(lines, '      width="100" height="100"')
 			table.insert(lines, '      padding="3 3 3 3">')
@@ -1334,9 +1340,11 @@
 			local imgURL   = hasImage and entry.imageURL or ""
 			local txtLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
 			local txtColor = entry and "#FFFFFF" or "#303030"
+			local tooltipText = entry and shortName(stripBBCode(entry.name), 30, 3) or "Empty slot"
 
 			table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
 			table.insert(lines, '      onClick="' .. g .. '/hud_history_' .. i .. '"')
+			table.insert(lines, '      tooltip="' .. tooltipText .. '"')
 			table.insert(lines, '      ' .. btnStyle(style))
 			table.insert(lines, '      width="54" height="54"')
 			table.insert(lines, '      padding="2 2 2 2">')
