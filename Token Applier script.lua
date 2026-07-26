@@ -72,7 +72,7 @@
 	local seatedColors 			= {}
 	local dropTemplateEnabled 	= true
 	local hudDraggable 			= false
-	local hudRootOffsetXY 		= "0 2"
+	local hudRootOffsetXY 		= "-400 2"
 	local hudPlacementMode 		= false
 
 -- ──────────────────────────────────────────────────────────────
@@ -1648,10 +1648,10 @@
 			table.insert(lines, '</Panel><!--tc_hud_root-->') -- end tc_hud_root
 			
 		-- ── Minimised-restore button ──
-	    table.insert(lines, '<Button id="tc_hud_restore"')
+		table.insert(lines, '<Button id="tc_hud_restore"')
 	    table.insert(lines, '  active="' .. (not hudVisible and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="0 2"')
+	    table.insert(lines, '  offsetXY="' .. hudRootOffsetXY .. '"')
 	    table.insert(lines, '  width="120" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
 	    table.insert(lines, '  ' .. btnStyle("hudAdd"))
