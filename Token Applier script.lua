@@ -74,7 +74,7 @@
 	local hudDraggable 			= false
 	local hudRootOffsetXY 		= "-400 2"
 	local hudPlacementMode 		= false
-	local defaultScaleOffset 	= -0.2   -- offset from template scale applied when a token spawns (in SCALE_STEP increments)
+	local defaultScaleOffset 	= -0.1   -- offset from template scale applied when a token spawns (in SCALE_STEP increments)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -794,6 +794,15 @@
 		selectedTokenGUID = nil
 	end
 
+	-- Activates the dynamic panel via .show() (not setAttribute) — .show() is the only mechanism that reliably shows this panel on its very first
+	-- activation. Guarded so it's never called while already visible, which avoids retriggering the Grow animation during normal gameplay/polling.
+	local function activateDynamicPanel()
+		if dynPanelVisible then return end
+		self.UI.show("dynamicPanel")
+		UI.show("tc_hud_dynPanel")
+		dynPanelVisible = true
+	end
+
 	-- Shows the dynamic panel populated for the given target model.
 	-- Replaces showDynamicButtons().
 	function showDynamicPanel(targetGUID, tokenCount)
@@ -856,9 +865,7 @@
 			end
 		end
 
-		self.UI.show("dynamicPanel")
-		UI.show("tc_hud_dynPanel")
-		dynPanelVisible  = true
+		activateDynamicPanel()
 		lastSelectedGUID = targetGUID
 	end
 
@@ -2177,7 +2184,7 @@
 	    Wait.condition(function()
 	        rebuildHUD()
 	    end, function() return not UI.loading end)
-		
+	
 		Wait.condition(function()
 			local isLineUp = modelLineUp[lastSelectedGUID or ""] or false
 			local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
@@ -2570,11 +2577,7 @@
 		-- Force panel refresh
 			lastSelectedGUID = targetGUID
 			refreshDynamicPanelSlots(targetGUID)
-			if not dynPanelVisible then
-				self.UI.setAttribute("dynamicPanel", "active", "True")
-				UI.setAttribute("tc_hud_dynPanel",   "active", "True")
-				dynPanelVisible = true
-			end
+			activateDynamicPanel()
 		end)
 	end
 
