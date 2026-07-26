@@ -74,6 +74,7 @@
 	local hudDraggable 			= false
 	local hudRootOffsetXY 		= "-400 2"
 	local hudPlacementMode 		= false
+	local defaultScaleOffset 	= -0.2   -- offset from template scale applied when a token spawns (in SCALE_STEP increments)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -252,6 +253,7 @@
 				tokenHistory      = tokenHistory,
 				hudDraggable      = hudDraggable,
 				hudVisible 			= hudVisible,
+				defaultScaleOffset  = defaultScaleOffset,
 			}
 			self.script_state = JSON.encode(blob)
 		end, saveStateDelay)
@@ -280,6 +282,7 @@
 	    if type(data.tokenHistory)  == "table"  then tokenHistory  = data.tokenHistory  end
 		if type(data.hudDraggable) == "boolean" then hudDraggable = data.hudDraggable end
 		if type(data.hudVisible) == "boolean" then hudVisible = data.hudVisible end
+		if type(data.defaultScaleOffset) == "number" then defaultScaleOffset = data.defaultScaleOffset end
 	    refreshTemplateCache()
 	end
 
@@ -645,6 +648,26 @@
 		btn_toggleSettings(nil, nil)
 	end
 	
+	
+	local function refreshDefaultScaleLabel()
+		local label = string.format("%.1f", defaultScaleOffset)
+		self.UI.setAttribute("defaultScaleLabel", "text", "Default Scale: " .. label)
+		UI.setAttribute("tc_hud_defaultScaleLabel", "text", label)
+	end
+
+	function btn_defaultScaleUp(_, _)
+		defaultScaleOffset = defaultScaleOffset + SCALE_STEP
+		saveState()
+		refreshDefaultScaleLabel()
+	end
+
+	function btn_defaultScaleDown(_, _)
+		defaultScaleOffset = defaultScaleOffset - SCALE_STEP
+		saveState()
+		refreshDefaultScaleLabel()
+	end
+
+
 	function btn_toggleHudDraggable(_, _)
 		hudDraggable = not hudDraggable
 		if not hudDraggable then
@@ -1082,7 +1105,7 @@
 		table.insert(lines, '  animationDuration="0.1"')
 		table.insert(lines, '  position="-460 -530 -25"')
 		table.insert(lines, '  rotation="0 0 0"')
-		table.insert(lines, '  width="448" height="128"')
+		table.insert(lines, '  width="448" height="182"') 		-- might need to tweak position
 		table.insert(lines, '  color="#484716F2">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="8 8 8 8" childAlignment="UpperCenter">')
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
@@ -1109,6 +1132,17 @@
 		table.insert(lines, '        ' .. btnStyle(dropTemplateEnabled and "settingsItem" or "danger"))
 		table.insert(lines, '        fontSize="18" preferredWidth="414" preferredHeight="50"')
 		table.insert(lines, '        ><Text text="' .. (dropTemplateEnabled and "Drop Template: ON" or "Drop Template: OFF") .. '" color="' .. BTN_STYLE[dropTemplateEnabled and "settingsItem" or "danger"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '    </HorizontalLayout>')
+		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
+		table.insert(lines, '      <Button onClick="btn_defaultScaleDown"')
+		table.insert(lines, '        tooltip="Decrease default spawn scale"')
+		table.insert(lines, '        ' .. btnStyle("settingsItem"))
+		table.insert(lines, '        fontSize="22" preferredWidth="80" preferredHeight="50">–</Button>')
+		table.insert(lines, '      <Text id="defaultScaleLabel" text="Default Scale: ' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" fontSize="16" alignment="MiddleCenter" preferredWidth="254" preferredHeight="50" />')
+		table.insert(lines, '      <Button onClick="btn_defaultScaleUp"')
+		table.insert(lines, '        tooltip="Increase default spawn scale"')
+		table.insert(lines, '        ' .. btnStyle("settingsItem"))
+		table.insert(lines, '        fontSize="22" preferredWidth="80" preferredHeight="50">+</Button>')
 		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
@@ -1465,9 +1499,9 @@
 	    table.insert(lines, '  hideAnimation="Shrink"')
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-180 75"')
-	    table.insert(lines, '  width="120" height="100"')
-	    table.insert(lines, '  color="#1A1A1A00">') -- used to have CC at the end
+		table.insert(lines, '  offsetXY="-180 85"')				-- might need to tweak position
+	    table.insert(lines, '  width="120" height="140"') 
+		table.insert(lines, '  color="#1A1A1A00">') -- used to have CC at the end
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter">')
 	    -- Remove Tokens
 	    table.insert(lines, '    <Button onClick="' .. g .. '/hud_removeTokens"')
@@ -1501,6 +1535,18 @@
 		table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
 		table.insert(lines, '      tooltip="Allow HUD to be dragged to a new position"')
 		table.insert(lines, '      >' .. (hudDraggable and "Drag: ON" or "Drag: OFF") .. '</Button>')
+		-- Default scale adjust
+		table.insert(lines, '    <HorizontalLayout spacing="2" childAlignment="MiddleCenter">')
+		table.insert(lines, '      <Button onClick="' .. g .. '/btn_defaultScaleDown"')
+		table.insert(lines, '        ' .. btnStyle("settingsItem"))
+		table.insert(lines, '        tooltip="Decrease default spawn scale"')
+		table.insert(lines, '        fontSize="16" preferredWidth="30" preferredHeight="36">–</Button>')
+		table.insert(lines, '      <Text id="tc_hud_defaultScaleLabel" text="' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" fontSize="12" alignment="MiddleCenter" preferredWidth="46" preferredHeight="36" />')
+		table.insert(lines, '      <Button onClick="' .. g .. '/btn_defaultScaleUp"')
+		table.insert(lines, '        ' .. btnStyle("settingsItem"))
+		table.insert(lines, '        tooltip="Increase default spawn scale"')
+		table.insert(lines, '        fontSize="16" preferredWidth="30" preferredHeight="36">+</Button>')
+		table.insert(lines, '    </HorizontalLayout>')
 		
 	    table.insert(lines, '  </VerticalLayout>')
 	    table.insert(lines, '</Panel><!--tc_hud_settingsPanel-->') -- end tc_hud_settingsPanel
@@ -2500,7 +2546,12 @@
 	        printToColor("Maximum tokens (" .. MAX_TOKENS .. ") already attached.", playerColor, { 1, 0.5, 0 }) return
 	    end
 	    local offset = FLOAT_HEIGHT_LOW
-	    local scale  = templateScale and { x=templateScale.x, y=templateScale.y, z=templateScale.z } or nil
+	    local scale
+	    if templateScale then
+	        local sx = math.max(0.1, templateScale.x + defaultScaleOffset)
+	        local sz = math.max(0.1, templateScale.z + defaultScaleOffset)
+	        scale = { x = sx, y = templateScale.y, z = sz }
+	    end
 	    local pos    = target.getPosition()
 	    pos.y = pos.y + offset
 	    spawnTemplateAt(pos, scale, false, false, function(token)
