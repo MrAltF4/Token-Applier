@@ -2,7 +2,7 @@
 --  Token Applier – Token Manager
 --  One controller handles any token type via full JSON template
 -- =============================================================
-
+-- ================== created by MrAltF4 ========================
 
 -- ──────────────────────────────────────────────────────────────
 --  OTHER CONSTANTS
@@ -33,9 +33,13 @@
 		{ id="bottom_cenleft",  hudXY="-250 2",    btnXY="-250 -300" },  
 		{ id="bottom_center",   hudXY="0 2",       btnXY="0 -300"    },
 		{ id="bottom_cenright", hudXY="250 2",     btnXY="250 -300"  },
-		
-		
+
+
 	}
+	local REMOVE_ALL_LABEL    = "X Remove All Tokens from Model"   -- plain X matches "X Clear History" (🗑 doesn't render in TTS)
+	local REMOVE_ALL_STYLE    = "settingsItem"   -- normal state: same yellow as the settings buttons
+	local REMOVE_ARMED_STYLE  = "hudRemove"      -- "Sure?" state: red, so the change pops
+	local REMOVE_CONFIRM_TIME = 3.0   -- seconds the "Sure? Click again" state waits for the second click
 
 -- ──────────────────────────────────────────────────────────────
 --  STATE VARIABLES
@@ -607,6 +611,22 @@
 	    btn_toggleToken(nil, player.color)
 	end
 
+	-- "Are you sure?" state: set by the first click, cleared by the second click or after REMOVE_CONFIRM_TIME
+	local removeConfirm = nil   -- { color = playerColor, targetGUID = model }
+
+	-- Switches the Remove All button between its normal (yellow) and armed "Sure?" (red) look
+	local function setRemoveAllLook(text, styleName)
+		local s = BTN_STYLE[styleName]
+		UI.setAttribute("tc_hud_dynRemoveAll",      "colors",    s.colors)
+		UI.setAttribute("tc_hud_dynRemoveAll_text", "text",      text)
+		UI.setAttribute("tc_hud_dynRemoveAll_text", "color",     s.textColor)
+	end
+
+	local function resetRemoveConfirm()
+		removeConfirm = nil
+		setRemoveAllLook(REMOVE_ALL_LABEL, REMOVE_ALL_STYLE)
+	end
+
 	function hud_removeTokens(player, _, _)
 	    local playerColor = player.color
 	    local sel = Player[playerColor].getSelectedObjects()
@@ -620,6 +640,20 @@
 	        printToColor("No tokens on selected model.", playerColor, { 1, 1, 0 })
 	        return
 	    end
+
+	    -- First click (or a different player/model): arm the button and wait for a second click
+	    if not (removeConfirm and removeConfirm.color == playerColor and removeConfirm.targetGUID == targetGUID) then
+	        local thisConfirm = { color = playerColor, targetGUID = targetGUID }
+	        removeConfirm = thisConfirm
+	        setRemoveAllLook("Sure? Click again to remove " .. #tokens .. " token(s)", REMOVE_ARMED_STYLE)
+	        Wait.time(function()
+	            if removeConfirm == thisConfirm then resetRemoveConfirm() end   -- expired without a second click
+	        end, REMOVE_CONFIRM_TIME)
+	        return
+	    end
+
+	    -- Second click: confirmed
+	    resetRemoveConfirm()
 	    for _, tGUID in ipairs(tokens) do
 	        local token = getObjectFromGUID(tGUID)
 	        if token then token.destroy() end
@@ -1555,7 +1589,8 @@
 		table.insert(lines, '  <Text id="tc_hud_sizeWarningText" text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" />')
 		table.insert(lines, '</Panel>')
 
-	    -- ── Settings flyout panel (Remove / Clear / Edit History) ──
+	    -- ── Settings flyout panel (Clear / Edit History / Placement…) ──
+	    -- (Remove Tokens moved to the dynamic panel as "Remove All Tokens from Model")
 	    table.insert(lines, '<Panel id="tc_hud_settingsPanel"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  showAnimation="Grow"')
@@ -1563,15 +1598,9 @@
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
 		table.insert(lines, '  offsetXY="-180 85"')				-- might need to tweak position
-	    table.insert(lines, '  width="120" height="140"') 
+	    table.insert(lines, '  width="120" height="101"') 	-- was 140; shrunk by one button (36 + 3 spacing) so the rest stay put
 		table.insert(lines, '  color="#1A1A1A00">') -- used to have CC at the end
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter">')
-	    -- Remove Tokens
-	    table.insert(lines, '    <Button onClick="' .. g .. '/hud_removeTokens"')
-	    table.insert(lines, '      ' .. btnStyle("hudRemove"))
-	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
-	    table.insert(lines, '      tooltip="Remove all tokens from selected model"')
-	    table.insert(lines, '      >Remove Tokens</Button>')
 	    -- Clear History
 	    table.insert(lines, '    <Button onClick="' .. g .. '/btn_clearHistory"')
 	    table.insert(lines, '      ' .. btnStyle("danger"))
@@ -1734,6 +1763,21 @@
 			.. 'rectAlignment="UpperLeft" '
 			.. 'offsetXY="' .. hcol(0) .. ' ' .. hRow3Y .. '">'
 			.. '<Text id="tc_hud_dynLineUpToggle_text" text="' .. (isLineUp and "Radial" or "Line up") .. '" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="12" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+			.. '</Button>')
+
+		-- Row 3: Remove All Tokens — right of Line-Up, spans cols 1-2 (two buttons + the gap between)
+		-- Two-click safeguard: first click arms it, second click removes (see hud_removeTokens)
+		local HREMW = HBW * 2 + HGAP
+		table.insert(lines, '  <Button id="tc_hud_dynRemoveAll" '
+			.. 'onClick="' .. g .. '/hud_removeTokens" '
+			.. 'tooltip="Remove ALL tokens from the selected model (click twice to confirm)" '
+			.. btnStyle(REMOVE_ALL_STYLE) .. ' '
+			.. 'width="' .. HREMW .. '" height="' .. HBW .. '" '
+			.. 'rectAlignment="UpperLeft" '
+			.. 'offsetXY="' .. hcol(1) .. ' ' .. hRow3Y .. '">'
+			.. '<Text id="tc_hud_dynRemoveAll_text" text="' .. REMOVE_ALL_LABEL .. '" color="' .. BTN_STYLE[REMOVE_ALL_STYLE].textColor .. '" '
+			.. 'resizeTextForBestFit="true" resizeTextMinSize="7" resizeTextMaxSize="11" '
+			.. 'width="' .. (HREMW - 4) .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
 			.. '</Button>')
 
 		-- Slot section — to the right of mod grid
