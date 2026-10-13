@@ -65,8 +65,7 @@
 	local templateIsFlippable 	= false
 	local modelLineUp     		= {}   -- [targetGUID] = "radial"|"line"
 	local modelLineOffset 		= {}   -- [targetGUID] = number (world Z offset)
-	local transferTokenGUID     = nil  -- set for single-token transfer mode
-	local transferSourceGUID    = nil  -- set for all-tokens transfer mode (model GUID)
+	local pendingTransfers      = {}   -- [playerColor] = { tokenGUID = single-token mode | sourceGUID = all-tokens mode (model GUID) }
 	local saveStatePending  	= false
 	local saveStateDelay    	= 0.5   -- seconds; tune down to 0.2 if you want snappier persistence
 	local targetMapCache    	= nil   -- invalidated when hoverEntries changes
@@ -1914,7 +1913,7 @@
 -- ──────────────────────────────────────────────────────────────
 --  Transfer_tokens-to-model
 -- ──────────────────────────────────────────────────────────────
-	local function executeTransfer(destGUID, tokenGUIDs)
+	local function executeTransfer(destGUID, tokenGUIDs, playerColor)
 		local destObj  = getObjectFromGUID(destGUID)
 		local destName = destObj and destObj.getName() or "Unknown"
 		local existingMap = buildTargetMap()
@@ -1938,16 +1937,48 @@
 		hideDynamicPanel()
 
 		if transferred < total then
-			broadcastToAll(
+			broadcastToColor(
 				"Max tokens reached on \"" .. destName .. "\" — only " .. transferred .. " of " .. total .. " transferred.",
-				{ 1, 0.6, 0.2 }
+				playerColor, { 1, 0.6, 0.2 }
 			)
 		else
-			broadcastToAll(
+			broadcastToColor(
 				"   Transferred " .. transferred .. " token(s) to " .. destName .. ".",
-				{ 0.3, 1, 0.5 }
+				playerColor, { 0.3, 1, 0.5 }
 			)
 		end
+	end
+
+	-- Finishes playerColor's pending transfer onto destGUID (if it's a valid model).
+	-- Only that player's own selection / pick-up ever calls this for their transfer.
+	local function tryCompleteTransfer(playerColor, destGUID)
+		local pending = pendingTransfers[playerColor]
+		if not pending then return end
+		-- Destination must be a model: not a token, the Applier, or the preview
+		if hoverEntries[destGUID] or destGUID == myGUID or destGUID == previewGUID then return end
+
+		local sourceModel = pending.sourceGUID
+		if not sourceModel and pending.tokenGUID then
+			local e = hoverEntries[pending.tokenGUID]
+			if e then sourceModel = e.targetGUID end
+		end
+		if not sourceModel then
+			pendingTransfers[playerColor] = nil   -- token was removed meanwhile; nothing to move
+			return
+		end
+
+		if destGUID == sourceModel then
+			-- Warn once, not every poll while the source model stays selected
+			if not pending.warnedSame then
+				broadcastToColor("Can't transfer to the same model.", playerColor, { 1, 0.7, 0.3 })
+				pending.warnedSame = true
+			end
+			return
+		end
+
+		local tokensToMove = pending.tokenGUID and { pending.tokenGUID } or findTokensForTarget(pending.sourceGUID)
+		pendingTransfers[playerColor] = nil
+		executeTransfer(destGUID, tokensToMove, playerColor)
 	end
 
 
@@ -1961,52 +1992,38 @@
 	function startSelectionLoop()
 		if selectionLoopRunning then return end
 		selectionLoopRunning = true
+		local function getPlayerSelection(colour)
+			local ok, sel = pcall(function()
+				return Player[colour].getSelectedObjects()
+			end)
+			return (ok and sel) or {}
+		end
+		-- First selection from a player who is NOT mid-transfer (drives the dynamic panel)
 		local function getSelection()
 			for colour, _ in pairs(seatedColors) do
-				local ok, sel = pcall(function()
-					return Player[colour].getSelectedObjects()
-				end)
-				if ok and sel and #sel > 0 then return sel end
+				if not pendingTransfers[colour] then
+					local sel = getPlayerSelection(colour)
+					if #sel > 0 then return sel end
+				end
 			end
 			return {}
 		end
 		local function poll()
 			if applierDestroyed then selectionLoopRunning = false return end
+			-- Each player mid-transfer: only THEIR OWN selection picks the destination
+			for colour, _ in pairs(pendingTransfers) do
+				local sel = getPlayerSelection(colour)
+				if #sel > 0 then tryCompleteTransfer(colour, sel[1].getGUID()) end
+			end
 			local sel = getSelection()
 			if #sel > 0 then
-				if transferTokenGUID or transferSourceGUID then
-					local destGUID = sel[1].getGUID()
-					if not hoverEntries[destGUID] then
-						-- only proceed if destination is a model, not a token
-						local sourceModel = transferSourceGUID
-						if not sourceModel and transferTokenGUID then
-							local e = hoverEntries[transferTokenGUID]
-							if e then sourceModel = e.targetGUID end
-						end
-						if sourceModel then
-							if destGUID == sourceModel then
-								broadcastToAll("Can't transfer to the same model.", { 1, 0.7, 0.3 })
-							elseif destGUID == self.getGUID() or destGUID == previewGUID then
-								-- silently ignore TC itself and preview object
-							else
-								local tokensToMove = transferTokenGUID
-									and { transferTokenGUID }
-									or  findTokensForTarget(transferSourceGUID)
-								executeTransfer(destGUID, tokensToMove)
-								transferTokenGUID  = nil
-								transferSourceGUID = nil
-							end
-						end
-					end
+				dynHideDelay = false
+				local guid   = sel[1].getGUID()
+				local tokens = findTokensForTarget(guid)
+				if #tokens > 0 then
+					showDynamicPanel(guid, #tokens)
 				else
-					dynHideDelay = false
-					local guid   = sel[1].getGUID()
-					local tokens = findTokensForTarget(guid)
-					if #tokens > 0 then
-						showDynamicPanel(guid, #tokens)
-					else
-						if dynPanelVisible then hideDynamicPanel() end
-					end
+					if dynPanelVisible then hideDynamicPanel() end
 				end
 			else
 				if dynPanelVisible then
@@ -2048,17 +2065,16 @@
 		token.addContextMenuItem("⇒ Transfer (all)", function(playerColor)
 			local entry = hoverEntries[tGUID]
 			if not entry then return end
-			transferSourceGUID = entry.targetGUID
-			transferTokenGUID  = nil
-			broadcastToAll("Select destination model for all tokens…", { 0.5, 0.8, 1 })
+			-- Belongs to the player who clicked; replaces any transfer they already had waiting
+			pendingTransfers[playerColor] = { sourceGUID = entry.targetGUID }
+			broadcastToColor("Select destination model for all tokens…", playerColor, { 0.5, 0.8, 1 })
 		end)
 
 		token.addContextMenuItem("→ Transfer (single)", function(playerColor)
 			local entry = hoverEntries[tGUID]
 			if not entry then return end
-			transferTokenGUID  = tGUID
-			transferSourceGUID = nil
-			broadcastToAll("Select destination model for this token…", { 0.5, 0.8, 1 })
+			pendingTransfers[playerColor] = { tokenGUID = tGUID }
+			broadcastToColor("Select destination model for this token…", playerColor, { 0.5, 0.8, 1 })
 		end)
 	end
 
@@ -2931,37 +2947,19 @@
 
 	function onPlayerDisconnect(player)
 		seatedColors[player.color] = nil
+		pendingTransfers[player.color] = nil   -- don't leave their transfer waiting for whoever sits next
 	end
 
 -- ──────────────────────────────────────────────────────────────
 --  PICK UP / DROP
 -- ──────────────────────────────────────────────────────────────
 
-	function onObjectPickUp(_, object)
+	function onObjectPickUp(playerColor, object)
 	    local guid = object.getGUID()
-		-- Transfer mode: picking up a model counts as selecting the destination
-		if transferTokenGUID or transferSourceGUID then
-			if not hoverEntries[guid] and guid ~= self.getGUID() and guid ~= previewGUID then
-				local sourceModel = transferSourceGUID
-				if not sourceModel and transferTokenGUID then
-					local e = hoverEntries[transferTokenGUID]
-					if e then sourceModel = e.targetGUID end
-				end
-				if sourceModel then
-					if guid == sourceModel then
-						broadcastToAll("Can't transfer to the same model.", { 1, 0.7, 0.3 })
-					else
-						local tokensToMove = transferTokenGUID
-							and { transferTokenGUID }
-							or  findTokensForTarget(transferSourceGUID)
-						executeTransfer(guid, tokensToMove)
-						transferTokenGUID  = nil
-						transferSourceGUID = nil
-					end
-				end
-			end
-			-- fall through to normal pickup handling so tokens still hide
-		end
+		-- Transfer mode: picking up a model counts as selecting the destination,
+		-- but only for the player who started that transfer.
+		-- Falls through to normal pickup handling so tokens still hide.
+		tryCompleteTransfer(playerColor, guid)
 	    local tokens = findTokensForTarget(guid)
 	    if #tokens == 0 then return end
 	    heldModels[guid] = true
