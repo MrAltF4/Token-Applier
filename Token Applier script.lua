@@ -20,6 +20,7 @@
 	local DROP_EJECT_OFFSET = 3.5
 	local PICKUP_HEIGHT_BOOST = 50.0
 	local PICKUP_SCALE_SHRINK = 0.01
+	local TOKEN_TAG         = "TokenApplier_Token"   -- every token we spawn carries this tag (see TOKEN STAMPING)
 
 -- HUD CONSTANTS
 	local HUD_POSITIONS = {
@@ -75,6 +76,8 @@
 	local hudRootOffsetXY 		= "-400 2"
 	local hudPlacementMode 		= false
 	local defaultScaleOffset 	= -0.1   -- offset from template scale applied when a token spawns (in SCALE_STEP increments)
+	local applierDestroyed 		= false  -- set by onDestroy; stops our loops so a deleted Applier can't fight a new one
+	local myGUID 				= nil    -- this Applier's GUID, cached in onLoad (still readable after deletion)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -234,11 +237,54 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  TOKEN STAMPING
+--  Each token carries our tag + a copy of its hoverEntries data in its memo.
+--  If the Applier is deleted, a new one can find and adopt them (btn_findTokens).
+-- ──────────────────────────────────────────────────────────────
+
+	-- Writes our tag and this token's entry data onto the token itself.
+	local function stampToken(token, entry)
+		if not token.hasTag(TOKEN_TAG) then token.addTag(TOKEN_TAG) end
+		local memo = JSON.encode({
+			owner      = myGUID,
+			targetGUID = entry.targetGUID,
+			offset     = entry.offset,
+			scale      = entry.scale,
+			flipped    = entry.flipped,
+			rotated    = entry.rotated,
+			vertical   = entry.vertical,
+		})
+		if token.memo ~= memo then token.memo = memo end
+	end
+
+	-- Strips our stamp from object data (used on templates), so the preview
+	-- and new spawns are never mistaken for an old token.
+	local function unstampData(data)
+		if type(data.Tags) ~= "table" then return end
+		local hadTag = false
+		for i = #data.Tags, 1, -1 do
+			if data.Tags[i] == TOKEN_TAG then
+				table.remove(data.Tags, i)
+				hadTag = true
+			end
+		end
+		if hadTag then data.Memo = nil end
+	end
+
+	-- True if another Applier that is still on the table has taken this token over
+	-- (Find Tokens rewrites the owner in the memo). If the owner named in the memo
+	-- no longer exists, we keep the token — that also covers our own GUID changing.
+	local function isOwnedByAnother(token)
+		local owner = (token.memo or ""):match('"owner"%s*:%s*"([^"]+)"')
+		return owner ~= nil and owner ~= myGUID and getObjectFromGUID(owner) ~= nil
+	end
+
+-- ──────────────────────────────────────────────────────────────
 --  PERSISTENCE
 -- ──────────────────────────────────────────────────────────────
 
 	local function saveState()
-		if saveStatePending then return end
+		if saveStatePending or applierDestroyed then return end
 		saveStatePending = true
 		Wait.time(function()
 			saveStatePending = false
@@ -256,6 +302,11 @@
 				defaultScaleOffset  = defaultScaleOffset,
 			}
 			self.script_state = JSON.encode(blob)
+			-- Keep each token's own stamp in sync with the notebook
+			for tGUID, entry in pairs(hoverEntries) do
+				local token = getObjectFromGUID(tGUID)
+				if token and type(entry) == "table" then stampToken(token, entry) end
+			end
 		end, saveStateDelay)
 	end
 
@@ -601,6 +652,7 @@
 			UI.hide("tc_hud_settingsPanel")
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
+			UI.hide("tc_hud_find_tokens")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_root")
 			UI.hide("tc_hud_dynPanel")
@@ -629,6 +681,7 @@
 			UI.hide("tc_hud_settingsPanel")
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
+			UI.hide("tc_hud_find_tokens")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_restore")
 			UI.hide("tc_hud_root")
@@ -680,7 +733,7 @@
 			saveState()
 		end
 		UI.setAttribute("tc_hud_root", "allowDragging", hudDraggable and "true" or "false")
-		UI.setAttribute("tc_hud_dragToggleBtn", "text", hudDraggable and "Drag: ON" or "Drag: OFF")
+		UI.setAttribute("tc_hud_dragToggleBtn", "text", hudDraggable and "HUD Drag: ON" or "HUD Drag: OFF")
 	end
 	
 	function btn_toggleHudPlacement(_, _)
@@ -712,6 +765,7 @@
 		UI.hide("tc_hud_settingsPanel")
 		UI.hide("tc_hud_off")
 		UI.hide("tc_hud_restore_tokens")
+		UI.hide("tc_hud_find_tokens")
 		UI.hide("tc_hud_templateVis")
 		UI.hide("tc_hud_placementOverlay")
 		UI.hide("tc_hud_dynPanel")
@@ -747,6 +801,7 @@
 			UI.show("tc_hud_settingsPanel")
 			UI.show("tc_hud_off")
 			UI.show("tc_hud_restore_tokens")
+			UI.show("tc_hud_find_tokens")
 			UI.show("tc_hud_templateVis")
 		else
 			self.UI.hide("settingsPanel")
@@ -754,6 +809,7 @@
 			UI.hide("tc_hud_settingsPanel")
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
+			UI.hide("tc_hud_find_tokens")
 			UI.hide("tc_hud_templateVis")
 		end
 		-- Update settings button highlight
@@ -1137,8 +1193,9 @@
 		table.insert(lines, '      <Button onClick="btn_toggleDropTemplate"')
 		table.insert(lines, '        tooltip="Enable or disable dropping objects onto TC to set template"')
 		table.insert(lines, '        ' .. btnStyle(dropTemplateEnabled and "settingsItem" or "danger"))
-		table.insert(lines, '        fontSize="18" preferredWidth="414" preferredHeight="50"')
+		table.insert(lines, '        fontSize="18" preferredWidth="205" preferredHeight="50"')
 		table.insert(lines, '        ><Text text="' .. (dropTemplateEnabled and "Drop Template: ON" or "Drop Template: OFF") .. '" color="' .. BTN_STYLE[dropTemplateEnabled and "settingsItem" or "danger"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '      <Button onClick="btn_findTokens" tooltip="Find and adopt tokens left behind by a deleted or old Token Applier" ' .. btnStyle("settingsItem") .. ' fontSize="18" preferredWidth="205" preferredHeight="50"><Text text="Find Tokens" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
 		table.insert(lines, '      <Button onClick="btn_defaultScaleDown"')
@@ -1541,7 +1598,7 @@
 		table.insert(lines, '      ' .. btnStyle(hudDraggable and "active" or "settingsItem"))
 		table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
 		table.insert(lines, '      tooltip="Allow HUD to be dragged to a new position"')
-		table.insert(lines, '      >' .. (hudDraggable and "Drag: ON" or "Drag: OFF") .. '</Button>')
+		table.insert(lines, '      >' .. (hudDraggable and "HUD Drag: ON" or "HUD Drag: OFF") .. '</Button>')
 		-- Default scale adjust
 		table.insert(lines, '    <HorizontalLayout spacing="2" childAlignment="MiddleCenter">')
 		table.insert(lines, '      <Button onClick="' .. g .. '/btn_defaultScaleDown"')
@@ -1569,6 +1626,18 @@
 	    table.insert(lines, '  fontSize="10"')
 	    table.insert(lines, '  tooltip="Restore tokens after save/load if any are missing"')
 	    table.insert(lines, '  >↺</Button>')
+
+	    -- ── Find Tokens button (adopt tokens from a deleted/old Applier) ──
+	    table.insert(lines, '<Button id="tc_hud_find_tokens"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-220 2"')
+	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_findTokens"')
+	    table.insert(lines, '  ' .. btnStyle("settingsItem"))
+	    table.insert(lines, '  fontSize="10"')
+	    table.insert(lines, '  tooltip="Find Tokens: adopt tokens left behind by a deleted or old Token Applier"')
+	    table.insert(lines, '  >F</Button>')
 
 	    -- ── Set Template button visibility toggle ──
 	    table.insert(lines, '<Button id="tc_hud_templateVis"')
@@ -1902,6 +1971,7 @@
 			return {}
 		end
 		local function poll()
+			if applierDestroyed then selectionLoopRunning = false return end
 			local sel = getSelection()
 			if #sel > 0 then
 				if transferTokenGUID or transferSourceGUID then
@@ -2001,6 +2071,7 @@
 	    if not templateJSON then return end
 	    local ok, data = pcall(JSON.decode, templateJSON)
 	    if not ok or type(data) ~= "table" then return end
+	    unstampData(data)
 
 	    local BLANK_IMAGE = "https://steamusercontent-a.akamaihd.net/ugc/2521536445208860998/E4C9AE9685105F12A3D4D3DC534616786D5D7666/"
 	    local imageURL = extractImageURL(data)
@@ -2080,6 +2151,7 @@
 	    if obj.getLock()           then return end
 	    local data = obj.getData()
 	    if not data then return end
+	    unstampData(data)
 	    local json  = JSON.encode(data)
 	    local ts    = data.Transform
 	    local scale = {
@@ -2162,6 +2234,7 @@
 -- ──────────────────────────────────────────────────────────────
 
 	function onLoad()
+	    myGUID = self.getGUID()
 	    loadState()
 		hudPlacementMode = false
 			--print("[Debug] hudVisible on load: " .. tostring(hudVisible))
@@ -2196,6 +2269,11 @@
 			UI.setAttribute("tc_hud_dynLineUpToggle_text",   "color",     "#FFFFFF")
 		end, function() return not self.UI.loading and not UI.loading end)
 
+	    -- Right-click backup, works even if the HUD is broken by another mod
+	    self.addContextMenuItem("Find Tokens", function() btn_findTokens() end)
+	    -- Stamp tokens we already track (upgrades tokens from older saves)
+	    saveState()
+
 	    startFollowLoop()
 	    startSelectionLoop()
 	    restorePreview()
@@ -2204,6 +2282,17 @@
 			if p and p.seated then
 				seatedColors[colour] = true
 			end
+		end
+	end
+
+	-- Called by TTS when this Applier is deleted. Its script would otherwise keep
+	-- running until the game reloads and fight a new Applier over the same tokens.
+	function onDestroy()
+		applierDestroyed = true
+		-- Remove our right-click options from tokens; a new Applier re-adds its own on Find Tokens
+		for tGUID, _ in pairs(hoverEntries) do
+			local token = getObjectFromGUID(tGUID)
+			if token then pcall(function() token.clearContextMenu() end) end
 		end
 	end
 
@@ -2236,6 +2325,7 @@
 	        printToColor("Could not read object data.", playerColor, { 1, 0.3, 0.3 })
 	        return
 	    end
+	    unstampData(data)
 	    local json = JSON.encode(data)
 	    local ts   = data.Transform
 	    templateScale = {
@@ -2496,6 +2586,7 @@
 	        print("[TokenManager] templateJSON is corrupt, cannot spawn.")
 	        return nil
 	    end
+	    unstampData(data)
 	    local spawnAlpha = 1.0
 	    if type(data.ColorDiffuse) == "table" and type(data.ColorDiffuse.a) == "number" then
 	        spawnAlpha = data.ColorDiffuse.a
@@ -2608,8 +2699,22 @@
 	    end
 
 	    local function tick()
+	        if applierDestroyed then followLoopRunning = false return end
 	        local toRemove  = {}
 	        local dirty     = false
+
+	        -- Handover: let go of tokens another Applier has adopted (drop from notebook, never destroy)
+	        local released = {}
+	        for tGUID, _ in pairs(hoverEntries) do
+	            local token = getObjectFromGUID(tGUID)
+	            if token and isOwnedByAnother(token) then released[#released + 1] = tGUID end
+	        end
+	        for _, tGUID in ipairs(released) do hoverEntries[tGUID] = nil end
+	        if #released > 0 then
+	            invalidateTargetMap()
+	            dirty = true
+	        end
+
 	        local targetMap = buildTargetMap()
 	        local now       = os.time()
 
@@ -2760,6 +2865,61 @@
 	    saveState()
 		invalidateTargetMap()
 	    printToAll("Restored " .. restored .. " hover token(s).", { 0.3, 0.8, 1 })
+	end
+
+-- ──────────────────────────────────────────────────────────────
+--  FIND TOKENS  (adopt stamped tokens left by a deleted/old Applier)
+-- ──────────────────────────────────────────────────────────────
+
+	function btn_findTokens(_, _)
+		local targetMap = buildTargetMap()
+		local adopted, noModel, owned, full = 0, 0, 0, 0
+
+		for _, token in ipairs(getObjectsWithTag(TOKEN_TAG)) do
+			local tGUID = token.getGUID()
+			-- Skip tokens we already manage, and our own preview
+			if not hoverEntries[tGUID] and tGUID ~= previewGUID then
+				local ok, data = pcall(JSON.decode, token.memo or "")
+				if ok and type(data) == "table" and type(data.targetGUID) == "string" then
+					local otherOwner = data.owner and data.owner ~= myGUID and getObjectFromGUID(data.owner)
+					local count      = targetMap[data.targetGUID] and #targetMap[data.targetGUID] or 0
+					if otherOwner then
+						owned = owned + 1        -- another Applier on the table still runs this token
+					elseif not getObjectFromGUID(data.targetGUID) then
+						noModel = noModel + 1    -- its model isn't on the table; leave it alone
+					elseif count >= MAX_TOKENS then
+						full = full + 1
+					else
+						hoverEntries[tGUID] = {
+							targetGUID = data.targetGUID,
+							offset     = data.offset or FLOAT_HEIGHT_LOW,
+							scale      = data.scale,
+							flipped    = data.flipped or false,
+							rotated    = data.rotated or false,
+							vertical   = data.vertical or false,
+						}
+						targetMap[data.targetGUID] = targetMap[data.targetGUID] or {}
+						table.insert(targetMap[data.targetGUID], tGUID)
+						token.setLock(true)
+						-- Handover: wipe the old Applier's right-click options, add ours,
+						-- and stamp us as owner right away so the old Applier lets go
+						pcall(function() token.clearContextMenu() end)
+						injectContextMenu(token)
+						stampToken(token, hoverEntries[tGUID])
+						adopted = adopted + 1
+					end
+				end
+			end
+		end
+
+		if adopted > 0 then
+			saveState()   -- also re-stamps adopted tokens with us as the new owner
+			invalidateTargetMap()
+		end
+		printToAll("Find Tokens: adopted " .. adopted .. " token(s).", { 0.3, 0.8, 1 })
+		if owned   > 0 then printToAll("  " .. owned   .. " skipped — still run by another Token Applier (delete it first).", { 1, 0.7, 0.3 }) end
+		if noModel > 0 then printToAll("  " .. noModel .. " skipped — their model isn't on the table.", { 1, 0.7, 0.3 }) end
+		if full    > 0 then printToAll("  " .. full    .. " skipped — model already has " .. MAX_TOKENS .. " tokens.", { 1, 0.7, 0.3 }) end
 	end
 
 -- ──────────────────────────────────────────────────────────────
