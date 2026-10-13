@@ -41,6 +41,12 @@
 	local REMOVE_ARMED_STYLE  = "hudRemove"      -- "Sure?" state: red, so the change pops
 	local REMOVE_CONFIRM_TIME = 3.0   -- seconds the "Sure? Click again" state waits for the second click
 
+-- TEMPLATE SIZE / HISTORY DISPLAY CONSTANTS
+	local SIZE_LARGE        = 5000    -- template JSON bytes above this = "large" (yellow warning)
+	local SIZE_MASSIVE      = 20000   -- above this = "massive" (red warning)
+	local SIZE_BADGE_COLOR  = { large = "#E6C619", massive = "#D93030" }   -- history slot badge colours
+	local NAME_ONLY_TYPES   = { Custom_Token = true }   -- object types whose history slot shows the name instead of the image
+
 -- ──────────────────────────────────────────────────────────────
 --  STATE VARIABLES
 -- ──────────────────────────────────────────────────────────────
@@ -81,6 +87,7 @@
 	local defaultScaleOffset 	= -0.1   -- offset from template scale applied when a token spawns (in SCALE_STEP increments)
 	local applierDestroyed 		= false  -- set by onDestroy; stops our loops so a deleted Applier can't fight a new one
 	local myGUID 				= nil    -- this Applier's GUID, cached in onLoad (still readable after deletion)
+	local showTemplatePreview 	= false  -- spawn a copy of image-less templates next to the TA (OUI setting, off by default)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -283,6 +290,42 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  HISTORY ENTRY INFO  (size badge + name-only display)
+-- ──────────────────────────────────────────────────────────────
+
+	-- Fills in display info on a history entry: byteSize (for the size badge) and, for
+	-- name-only types (e.g. white custom tokens), blanks the image so the slot shows the name.
+	-- nameOnly is saved with the entry, so the JSON is only decoded once per entry.
+	local function prepareHistoryEntry(entry)
+		if type(entry) ~= "table" or type(entry.json) ~= "string" then return end
+		entry.byteSize = #entry.json
+		if entry.nameOnly == nil then
+			local ok, data = pcall(JSON.decode, entry.json)
+			entry.nameOnly = (ok and type(data) == "table" and NAME_ONLY_TYPES[data.Name]) or false
+		end
+		if entry.nameOnly then entry.imageURL = "" end
+	end
+
+	-- nil (normal size), "large" or "massive"
+	local function sizeClass(byteSize)
+		if not byteSize then return nil end
+		if byteSize > SIZE_MASSIVE then return "massive" end
+		if byteSize > SIZE_LARGE   then return "large"   end
+		return nil
+	end
+
+	-- Small ⚠ badge in a history slot's bottom-right corner (clear of the name text).
+	-- raycastTarget="false" lets clicks pass through to the slot button underneath.
+	local function sizeBadgeXml(id, sc, size, fontSize)
+		return '      <Panel id="' .. id .. '" rectAlignment="LowerRight" offsetXY="-1 1"'
+			.. ' width="' .. size .. '" height="' .. size .. '"'
+			.. ' color="' .. (SIZE_BADGE_COLOR[sc] or SIZE_BADGE_COLOR.large) .. '"'
+			.. ' raycastTarget="false" active="' .. (sc and "True" or "False") .. '">'
+			.. '<Text text="⚠" fontSize="' .. fontSize .. '" color="#000000" alignment="MiddleCenter" raycastTarget="false" />'
+			.. '</Panel>'
+	end
+
+-- ──────────────────────────────────────────────────────────────
 --  PERSISTENCE
 -- ──────────────────────────────────────────────────────────────
 
@@ -303,6 +346,7 @@
 				hudDraggable      = hudDraggable,
 				hudVisible 			= hudVisible,
 				defaultScaleOffset  = defaultScaleOffset,
+				showTemplatePreview = showTemplatePreview,
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -337,6 +381,9 @@
 		if type(data.hudDraggable) == "boolean" then hudDraggable = data.hudDraggable end
 		if type(data.hudVisible) == "boolean" then hudVisible = data.hudVisible end
 		if type(data.defaultScaleOffset) == "number" then defaultScaleOffset = data.defaultScaleOffset end
+		if type(data.showTemplatePreview) == "boolean" then showTemplatePreview = data.showTemplatePreview end
+		-- Upgrade history from older saves (adds size info, name-only display)
+		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
 	end
 
@@ -410,6 +457,16 @@
 		return name:gsub("%[/?[%a][%a0-9]*%]", "")
 	end
 
+	-- Hover text for a history slot: the name, plus a size warning if the template is large/massive
+	local function historyTooltip(entry)
+		if not entry then return "Empty slot" end
+		local text = shortName(stripBBCode(entry.name), 30, 3)
+		local sc   = sizeClass(entry.byteSize)
+		if sc == "massive" then return text .. "\n⚠ Very large object — expect some lag" end
+		if sc == "large"   then return text .. "\n⚠ Large object" end
+		return text
+	end
+
 	local function isFlippableType(data)
 		if type(data) ~= "table" then return false end
 		return data.Name == "Custom_Tile"
@@ -461,6 +518,24 @@
 		}
 	end
 
+	-- Shows/hides the "Large / Very large object" banner on BOTH the OUI and the HUD to
+	-- match the current template (colour + text too). Every path that changes the
+	-- template calls this, so the two banners can't get out of step.
+	local function refreshSizeWarning()
+		local sc = templateJSON and sizeClass(templateCache.byteSize)
+		-- HUD banner stays hidden while the HUD itself is minimised or switched off
+		local hudShow = sc and hudVisible and hudEnabled
+		self.UI.setAttribute("sizeWarningPanel",  "active", sc and "True" or "False")
+		UI.setAttribute("tc_hud_sizeWarning",     "active", hudShow and "True" or "False")
+		if sc then
+			local massive = (sc == "massive")
+			self.UI.setAttribute("sizeWarningPanel",  "color", massive and "#5A1A00F2" or "#3A3A0AF2")
+			self.UI.setAttribute("sizeWarningText",   "text",  massive and "⚠ Very large object — expect some lag" or "⚠ Large object")
+			UI.setAttribute("tc_hud_sizeWarning",     "color", massive and "#5A1A00FF" or "#3A3A0AFF")
+			UI.setAttribute("tc_hud_sizeWarningText", "text",  massive and "⚠ Very large" or "⚠ Large object")
+		end
+	end
+
 -- ──────────────────────────────────────────────────────────────
 --  TOKEN HISTORY (data layer)
 -- ──────────────────────────────────────────────────────────────
@@ -472,12 +547,14 @@
 	            break
 	        end
 	    end
-	    table.insert(tokenHistory, 1, {
+	    local newEntry = {
 	        json     = json,
 	        scale    = scale,
 	        name     = name,
 	        imageURL = imageURL or "",
-	    })
+	    }
+	    prepareHistoryEntry(newEntry)
+	    table.insert(tokenHistory, 1, newEntry)
 	    while #tokenHistory > HISTORY_MAX do
 	        table.remove(tokenHistory)
 	    end
@@ -495,14 +572,7 @@
 		-- Update history slot highlights
 		refreshHistorySlots()
 		refreshPreviewIndicator()
-		-- Update size warning
-		if templateCache.byteSize > 5000 then
-			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
-			self.UI.setAttribute("sizeWarningPanel", "active", "True")
-			self.UI.setAttribute("sizeWarningPanel", "color",  templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2")
-		else
-			self.UI.setAttribute("sizeWarningPanel", "active", "False")
-		end
+		refreshSizeWarning()
 		-- Update HUD Set Template button
 		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
 		local tcLabel = templateJSON and tcShort or "No Template"
@@ -676,6 +746,7 @@
 			UI.show("tc_hud_settings")
 			if not hideSetTemplate then UI.show("tc_hud_setTemplate") end
 			UI.hide("tc_hud_restore")
+			refreshSizeWarning()   -- bring the size banner back if the template needs it
 		else
 			UI.hide("tc_hud_root")
 			UI.hide("tc_hud_core")
@@ -706,6 +777,7 @@
 			UI.show("tc_hud_settings")
 			if not hideSetTemplate then UI.show("tc_hud_setTemplate") end
 			UI.hide("tc_hud_restore")
+			refreshSizeWarning()   -- bring the size banner back if the template needs it
 		else
 			UI.hide("tc_hud_core")
 			UI.hide("tc_hud_minimize")
@@ -868,6 +940,14 @@
 		rebuildXML()
 	end
 
+	-- OUI setting: spawn a 3D copy of image-less templates next to the TA
+	function btn_toggleTemplatePreview(_, _)
+		showTemplatePreview = not showTemplatePreview
+		saveState()
+		spawnPreview()   -- spawns the copy now, or removes it when switched off
+		rebuildXML()
+	end
+
 -- ──────────────────────────────────────────────────────────────
 --  DYNAMIC PANEL — show/hide helpers
 -- ──────────────────────────────────────────────────────────────
@@ -987,8 +1067,17 @@
 			local txtColor = entry and "#FFFFFF" or "#404040"
 			local hudLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
 			local hudColor = entry and "#FFFFFF" or "#303030"
+			local sc       = entry and sizeClass(entry.byteSize)
 
-			local tooltipText = entry and shortName(stripBBCode(entry.name), 30, 3) or "Empty slot"
+			local tooltipText = historyTooltip(entry)
+
+			-- Size badge (OUI + HUD): shown only for large/massive templates
+			self.UI.setAttribute("histBtn" .. i .. "_warn",      "active", sc and "True" or "False")
+			UI.setAttribute("tc_hud_hist_" .. i .. "_warn",      "active", sc and "True" or "False")
+			if sc then
+				self.UI.setAttribute("histBtn" .. i .. "_warn",  "color",  SIZE_BADGE_COLOR[sc])
+				UI.setAttribute("tc_hud_hist_" .. i .. "_warn",  "color",  SIZE_BADGE_COLOR[sc])
+			end
 
 			-- OUI slot
 			self.UI.setAttribute("histBtn" .. i,         "colors",    BTN_STYLE[style].colors)
@@ -1114,7 +1203,8 @@
 			local txtLabel = entry and shortName(stripBBCode(entry.name), 5, 3) or "·"
 			local txtColor = entry and "#FFFFFF" or "#404040"
 			local txtSize  = entry and "20" or "20"
-			local tooltipText = entry and shortName(stripBBCode(entry.name), 30, 3) or "Empty slot"
+			local sc       = entry and sizeClass(entry.byteSize)
+			local tooltipText = historyTooltip(entry)
 
 			table.insert(lines, '    <Button id="histBtn' .. i .. '"')
 			table.insert(lines, '      onClick="btn_history_' .. i .. '"')
@@ -1134,6 +1224,7 @@
 			table.insert(lines, '        alignment="MiddleCenter"')
 			table.insert(lines, '        width="80" height="80"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
+			table.insert(lines, sizeBadgeXml('histBtn' .. i .. '_warn', sc, 28, 18))
 			table.insert(lines, '    </Button>')
 		end
 	    table.insert(lines, '  </GridLayout>')
@@ -1218,8 +1309,13 @@
 		table.insert(lines, '      <Button onClick="btn_toggleSetTemplate"')
 		table.insert(lines, '        tooltip="Show or hide the Set Template button"')
 		table.insert(lines, '        ' .. btnStyle(hideSetTemplate and "danger" or "settingsItem"))
-		table.insert(lines, '        fontSize="18" preferredWidth="414" preferredHeight="50"')
+		table.insert(lines, '        fontSize="18" preferredWidth="205" preferredHeight="50"')
 		table.insert(lines, '        ><Text text="' .. (hideSetTemplate and "Template: Hidden" or "Template: Visible") .. '" color="' .. BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '      <Button onClick="btn_toggleTemplatePreview"')
+		table.insert(lines, '        tooltip="Spawn a 3D copy of the template next to the Token Applier when it has no image to show"')
+		table.insert(lines, '        ' .. btnStyle(showTemplatePreview and "settingsItem" or "danger"))
+		table.insert(lines, '        fontSize="18" preferredWidth="205" preferredHeight="50"')
+		table.insert(lines, '        ><Text text="' .. (showTemplatePreview and "3D Preview: ON" or "3D Preview: OFF") .. '" color="' .. BTN_STYLE[showTemplatePreview and "settingsItem" or "danger"].textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '    </HorizontalLayout>')
 			-- Toggle Drop-to-template_Function
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter">')
@@ -1273,17 +1369,17 @@
 		
 		-- large token warning
 		local sizeWarning   = ""
-		if templateCache.byteSize > 20000 then
+		if templateCache.byteSize > SIZE_MASSIVE then
 			sizeWarning = "\n⚠ Very large object"
-		elseif templateCache.byteSize > 5000 then
+		elseif templateCache.byteSize > SIZE_LARGE then
 			sizeWarning = "\n⚠ Large object"
 		end
 		templateLabel = templateLabel .. sizeWarning
 		
 		-- ── Size warning panel ──
-		local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
-		local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
-		local warnActive = templateCache.byteSize > 5000 and "True" or "False"
+		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large object — expect some lag" or "⚠ Large object"
+		local warnColor = templateCache.byteSize > SIZE_MASSIVE and "#5A1A00F2" or "#3A3A0AF2"
+		local warnActive = templateCache.byteSize > SIZE_LARGE and "True" or "False"
 		table.insert(lines, '<Panel id="sizeWarningPanel"')
 		table.insert(lines, '  active="' .. warnActive .. '"')
 		table.insert(lines, '  position="0 -230 -25"')
@@ -1471,7 +1567,8 @@
 			local imgURL   = hasImage and entry.imageURL or ""
 			local txtLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
 			local txtColor = entry and "#FFFFFF" or "#303030"
-			local tooltipText = entry and shortName(stripBBCode(entry.name), 30, 3) or "Empty slot"
+			local sc       = entry and sizeClass(entry.byteSize)
+			local tooltipText = historyTooltip(entry)
 
 			table.insert(lines, '    <Button id="tc_hud_hist_' .. i .. '"')
 			table.insert(lines, '      onClick="' .. g .. '/hud_history_' .. i .. '"')
@@ -1490,6 +1587,7 @@
 			table.insert(lines, '        color="' .. txtColor .. '"')
 			table.insert(lines, '        alignment="MiddleCenter"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
+			table.insert(lines, sizeBadgeXml('tc_hud_hist_' .. i .. '_warn', sc, 16, 10))
 			table.insert(lines, '    </Button>')
 		end
 
@@ -1577,9 +1675,9 @@
 	    table.insert(lines, '  >' .. tcLabel .. '</Button>')
 		
 		-- ── Size warning ──
-		local warnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
-		local warnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
-		local warnActive = templateCache.byteSize > 5000 and "True" or "False"
+		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large" or "⚠ Large object"
+		local warnColor = templateCache.byteSize > SIZE_MASSIVE and "#5A1A00FF" or "#3A3A0AFF"
+		local warnActive = templateCache.byteSize > SIZE_LARGE and "True" or "False"
 		table.insert(lines, '<Panel id="tc_hud_sizeWarning"')
 		table.insert(lines, '  active="' .. warnActive .. '"')
 		table.insert(lines, '  rectAlignment="LowerCenter"')
@@ -2128,6 +2226,16 @@
 -- ──────────────────────────────────────────────────────────────
 
 	spawnPreview = function()
+	    -- Setting off (default): remove any existing copy and spawn nothing
+	    if not showTemplatePreview then
+	        if previewGUID then
+	            local existing = getObjectFromGUID(previewGUID)
+	            if existing then existing.destroy() end
+	            previewGUID = nil
+	            saveState()
+	        end
+	        return
+	    end
 	    if not templateJSON then return end
 	    local ok, data = pcall(JSON.decode, templateJSON)
 	    if not ok or type(data) ~= "table" then return end
@@ -2233,22 +2341,7 @@
 	    refreshHistorySlots()
 		refreshPreviewIndicator()
 		
-		-- Update size warning
-		if templateCache.byteSize > 5000 then
-			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
-			local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
-			self.UI.setAttribute("sizeWarningPanel",    "active", "True")
-			self.UI.setAttribute("sizeWarningPanel",    "color",  warnColor)
-			self.UI.setAttribute("sizeWarningText",     "text",   warnText)
-			local hudWarnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
-			local hudWarnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
-			UI.setAttribute("tc_hud_sizeWarning",       "active", "True")
-			UI.setAttribute("tc_hud_sizeWarning",       "color",  hudWarnColor)
-			UI.setAttribute("tc_hud_sizeWarningText",   "text",   hudWarnText)
-		else
-			self.UI.setAttribute("sizeWarningPanel",    "active", "False")
-			UI.setAttribute("tc_hud_sizeWarning",       "active", "False")
-		end
+		refreshSizeWarning()
 		
 		-- Update HUD Set Template button
 		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
@@ -2405,22 +2498,7 @@
 	    spawnPreview()
 	    refreshHistorySlots()
 		refreshPreviewIndicator()
-		-- Update size warning
-		if templateCache.byteSize > 5000 then
-			local warnText  = templateCache.byteSize > 20000 and "⚠ Very large object — expect some lag" or "⚠ Large object"
-			local warnColor = templateCache.byteSize > 20000 and "#5A1A00F2" or "#3A3A0AF2"
-			self.UI.setAttribute("sizeWarningPanel",    "active", "True")
-			self.UI.setAttribute("sizeWarningPanel",    "color",  warnColor)
-			self.UI.setAttribute("sizeWarningText",     "text",   warnText)
-			local hudWarnText  = templateCache.byteSize > 20000 and "⚠ Very large" or "⚠ Large object"
-			local hudWarnColor = templateCache.byteSize > 20000 and "#5A1A00FF" or "#3A3A0AFF"
-			UI.setAttribute("tc_hud_sizeWarning",       "active", "True")
-			UI.setAttribute("tc_hud_sizeWarning",       "color",  hudWarnColor)
-			UI.setAttribute("tc_hud_sizeWarningText",   "text",   hudWarnText)
-		else
-			self.UI.setAttribute("sizeWarningPanel",    "active", "False")
-			UI.setAttribute("tc_hud_sizeWarning",       "active", "False")
-		end
+		refreshSizeWarning()
 		-- Update HUD Set Template button
 		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
 		local tcLabel = templateJSON and tcShort or "No Template"
