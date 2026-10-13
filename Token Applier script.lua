@@ -16,7 +16,9 @@
 	local RADIUS_STEP       = 0.5
 	local GRACE_PERIOD      = 2.0
 	local HEAL_RADIUS       = 0.2
-	local HISTORY_MAX       = 8
+	local HISTORY_SLOTS     = 8    -- slots visible per page (the 2×4 grid)
+	local HISTORY_MAX       = 32   -- total history entries kept (4 pages of 8)
+	local HISTORY_PAGES     = HISTORY_MAX / HISTORY_SLOTS   -- 4; if this changes, add matching btn_historyPage_N handlers
 	local DROP_EJECT_OFFSET = 3.5
 	local PICKUP_HEIGHT_BOOST = 50.0
 	local PICKUP_SCALE_SHRINK = 0.01
@@ -94,6 +96,10 @@
 	local applierDestroyed 		= false  -- set by onDestroy; stops our loops so a deleted Applier can't fight a new one
 	local myGUID 				= nil    -- this Applier's GUID, cached in onLoad (still readable after deletion)
 	local showTemplatePreview 	= false  -- spawn a copy of image-less templates next to the TA (OUI setting, off by default)
+	local imageCheck 			= {}     -- [imageURL] = "ok" | "unsupported" (e.g. WebP, which the UI can't draw); saved
+	local imageCheckPending 	= {}     -- [imageURL] = true while its download/check is in flight (not saved)
+	local historyPage 			= 0      -- which page of history the 8 slots show (0 = newest)
+	local uiOpaque 				= false  -- Opaque mode: all OUI + HUD backgrounds fully solid (saved)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -209,6 +215,23 @@
 	        textColor  = "#3CCCFF",
 	        transition = "ColorTint",
 	    },
+		-- History page arrows (‹ ›)
+		historyNav = {   -- same dark green as the history slots, so the arrows read as part of the grid
+			colors     = "#0D140DF2|#1A281AF2|#08100AF2|#333333AA",
+			textColor  = "#FFFFFF",
+			transition = "ColorTint",
+		},
+		-- History page dots: current page bright, others grey
+		historyDotOn = {
+			colors     = "#FFFFFFFF|#FFFFFFFF|#CCCCCCFF|#333333AA",
+			textColor  = "#FFFFFF",
+			transition = "ColorTint",
+		},
+		historyDotOff = {
+			colors     = "#666666FF|#999999FF|#444444FF|#333333AA",
+			textColor  = "#FFFFFF",
+			transition = "ColorTint",
+		},
 		-- Any toggle in its ON state
 		toggleOn = {
 			colors     = "#145214F2|#1E7A1EF2|#0E3A0EF2|#333333AA",
@@ -259,6 +282,39 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  OPACITY  (Opaque mode makes every OUI + HUD background fully solid)
+--  A colour's transparency is its last 2 hex digits: #0D2B40F2 → F2 ≈ 95% solid, FF = 100%.
+-- ──────────────────────────────────────────────────────────────
+
+	-- The shipped (slightly transparent) button colours, so Opaque mode can switch back
+	local BTN_STYLE_ORIGINAL = {}
+	for name, s in pairs(BTN_STYLE) do BTN_STYLE_ORIGINAL[name] = s.colors end
+
+	-- One colour "#RRGGBBAA" → fully solid "#RRGGBBFF" while Opaque mode is on.
+	-- Fully clear colours (alpha 00, e.g. invisible container panels) are left clear.
+	-- Deliberately see-through colours (Edit-mode red tint over images, Place HUD dimmer)
+	-- simply aren't passed through this.
+	local function op(c)
+		if not uiOpaque or type(c) ~= "string" or #c ~= 9 then return c end
+		if c:sub(8, 9) == "00" then return c end
+		return c:sub(1, 7) .. "FF"
+	end
+
+	-- Rewrites every button style for the current mode. Because every build AND every live
+	-- update reads BTN_STYLE, this one swap covers all buttons. The 4th state (disabled) is
+	-- left as shipped.
+	local function applyOpacity()
+		for name, s in pairs(BTN_STYLE) do
+			local parts, i = {}, 0
+			for part in BTN_STYLE_ORIGINAL[name]:gmatch("[^|]+") do
+				i = i + 1
+				parts[i] = (i < 4) and op(part) or part
+			end
+			s.colors = table.concat(parts, "|")
+		end
+	end
+
+-- ──────────────────────────────────────────────────────────────
 --  IMAGE URL EXTRACTION
 -- ──────────────────────────────────────────────────────────────
 
@@ -285,10 +341,12 @@
 	-- e.g. decals). Matched by its unique ID so any Steam server address counts.
 	local BLANK_IMAGE_ID = "E4C9AE9685105F12A3D4D3DC534616786D5D7666"
 
-	-- An image worth displaying: nil when there's no image or it's the blank placeholder
+	-- An image worth displaying: nil when there's no image, it's the blank placeholder,
+	-- or a check found it's a format the UI can't draw (see checkImageFormats)
 	local function usefulImageURL(data)
 	    local url = extractImageURL(data)
 	    if not url or url:find(BLANK_IMAGE_ID, 1, true) then return nil end
+	    if imageCheck[url] == "unsupported" then return nil end
 	    return url
 	end
 
@@ -357,8 +415,9 @@
 		entry.byteSize = #entry.json
 		local ok, data = pcall(JSON.decode, entry.json)
 		if not ok or type(data) ~= "table" then return end
-		entry.nameOnly = (NAME_ONLY_TYPES[data.Name] and isTinted(data)) or false
-		entry.imageURL = entry.nameOnly and "" or (usefulImageURL(data) or "")   -- blank placeholder → name
+		entry.nameOnly    = (NAME_ONLY_TYPES[data.Name] and isTinted(data)) or false
+		entry.rawImageURL = extractImageURL(data)   -- the real link, kept so checkImageFormats can test it
+		entry.imageURL    = entry.nameOnly and "" or (usefulImageURL(data) or "")   -- blank / unsupported → name
 	end
 
 	-- nil (normal size), "large" or "massive"
@@ -402,6 +461,8 @@
 				hudVisible 			= hudVisible,
 				defaultScaleOffset  = defaultScaleOffset,
 				showTemplatePreview = showTemplatePreview,
+				imageCheck          = imageCheck,
+				uiOpaque            = uiOpaque,
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -437,9 +498,56 @@
 		if type(data.hudVisible) == "boolean" then hudVisible = data.hudVisible end
 		if type(data.defaultScaleOffset) == "number" then defaultScaleOffset = data.defaultScaleOffset end
 		if type(data.showTemplatePreview) == "boolean" then showTemplatePreview = data.showTemplatePreview end
+		if type(data.imageCheck) == "table" then imageCheck = data.imageCheck end   -- before history prep, which reads it
+		if type(data.uiOpaque) == "boolean" then uiOpaque = data.uiOpaque end
 		-- Upgrade history from older saves (adds size info, name-only display)
 		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
+	end
+
+-- ──────────────────────────────────────────────────────────────
+--  IMAGE FORMAT CHECK
+--  The 3D tokens can use WebP images, but the screen UI can't draw them: a WebP shows
+--  as a white box (or keeps the slot's previous picture). We download each history
+--  image once, check its first bytes, and remember the answer in imageCheck (saved).
+-- ──────────────────────────────────────────────────────────────
+
+	-- WebP files start with "RIFF", then 4 size bytes, then "WEBP". The download arrives as
+	-- text, and the size bytes may get mangled, so look for "WEBP" anywhere near the start.
+	local function isWebP(text)
+		return type(text) == "string" and text:sub(1, 4) == "RIFF"
+		   and text:sub(1, 32):find("WEBP", 1, true) ~= nil
+	end
+
+	-- Re-applies image decisions everywhere after a check finds an unsupported image
+	local function applyImageCheckResults()
+		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
+		refreshTemplateCache()
+		refreshHistorySlots()
+		refreshPreviewIndicator()
+		saveState()
+	end
+
+	-- Starts a background check for every history image that hasn't been tested yet
+	function checkImageFormats()
+		for _, entry in ipairs(tokenHistory) do
+			local url = entry.rawImageURL
+			if type(url) == "string" and url ~= "" and not url:find(BLANK_IMAGE_ID, 1, true)
+			   and not imageCheck[url] and not imageCheckPending[url] then
+				imageCheckPending[url] = true
+				WebRequest.get(url, function(request)
+					imageCheckPending[url] = nil
+					if request.is_error then return end   -- couldn't download: leave untested, retry next time
+					if isWebP(request.text) then
+						imageCheck[url] = "unsupported"
+						applyImageCheckResults()
+					else
+						imageCheck[url] = "ok"
+						saveState()
+					end
+				end)
+			end
+		end
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -584,9 +692,11 @@
 		UI.setAttribute("tc_hud_sizeWarning",     "active", hudShow and "True" or "False")
 		if sc then
 			local massive = (sc == "massive")
-			self.UI.setAttribute("sizeWarningPanel",  "color", massive and "#5A1A00F2" or "#3A3A0AF2")
+			self.UI.setAttribute("sizeWarningPanel",  "color", op(massive and "#5A1A00F2" or "#3A3A0AF2"))
 			self.UI.setAttribute("sizeWarningText",   "text",  massive and "⚠ Very large object — expect some lag" or "⚠ Large object")
-			UI.setAttribute("tc_hud_sizeWarning",     "color", massive and "#5A1A00FF" or "#3A3A0AFF")
+			-- HUD banner is a Button (for rounded corners), so it takes "colors" (all 4 states the same)
+			local hc = massive and "#5A1A00FF" or "#3A3A0AFF"
+			UI.setAttribute("tc_hud_sizeWarning",     "colors", hc .. "|" .. hc .. "|" .. hc .. "|" .. hc)
 			UI.setAttribute("tc_hud_sizeWarningText", "text",  massive and "⚠ Very large" or "⚠ Large object")
 		end
 	end
@@ -594,6 +704,27 @@
 -- ──────────────────────────────────────────────────────────────
 --  TOKEN HISTORY (data layer)
 -- ──────────────────────────────────────────────────────────────
+
+	-- ── Paging helpers ──
+	-- The 8 slots show one "page" of the history list. EVERY slot → entry lookup goes
+	-- through histIndex, so slot 3 on page 1 means tokenHistory[11].
+	local function histIndex(slot)
+		return historyPage * HISTORY_SLOTS + slot
+	end
+
+	local function historyPageCount()
+		return math.max(1, math.ceil(#tokenHistory / HISTORY_SLOTS))
+	end
+
+	-- Page (0-based) holding the active template, or 0 if none
+	local function pageOfActive()
+		for i, entry in ipairs(tokenHistory) do
+			if templateJSON and entry.json == templateJSON then
+				return math.floor((i - 1) / HISTORY_SLOTS)
+			end
+		end
+		return 0
+	end
 
 	local function addToHistory(json, scale, name, imageURL)
 	    for i, entry in ipairs(tokenHistory) do
@@ -613,10 +744,13 @@
 	    while #tokenHistory > HISTORY_MAX do
 	        table.remove(tokenHistory)
 	    end
+	    historyPage = 0       -- new entries go to the front, so jump back to the first page to show it
+	    checkImageFormats()   -- test the new entry's image in the background (once per image)
 	end
 
-	local function activateHistoryEntry(index)
-		local entry = tokenHistory[index]
+	-- slot = 1..8 on the current page
+	local function activateHistoryEntry(slot)
+		local entry = tokenHistory[histIndex(slot)]
 		if not entry then return end
 		templateJSON  = entry.json
 		templateScale = entry.scale
@@ -663,10 +797,14 @@
 	
 	
 	
-	local function deleteHistoryEntry(index)
+	-- slot = 1..8 on the current page
+	local function deleteHistoryEntry(slot)
+		local index = histIndex(slot)
 		if not tokenHistory[index] then return end
 		local removing = tokenHistory[index]
 		table.remove(tokenHistory, index)
+		-- If that emptied the last page, step back a page
+		historyPage = math.min(historyPage, historyPageCount() - 1)
 		if templateJSON == removing.json then
 			templateJSON  = nil
 			templateScale = nil
@@ -719,6 +857,40 @@
 	function hud_deleteHistory_6(player, _, _) deleteHistoryEntry(6) end
 	function hud_deleteHistory_7(player, _, _) deleteHistoryEntry(7) end
 	function hud_deleteHistory_8(player, _, _) deleteHistoryEntry(8) end
+
+-- ──────────────────────────────────────────────────────────────
+--  HISTORY PAGING (arrows + dots, shared by OUI and HUD)
+-- ──────────────────────────────────────────────────────────────
+
+	-- Goes to page p (0-based). Keeps the selection on screen: the slot in the SAME
+	-- position on the new page is selected, or its first slot if that one's empty.
+	-- If nothing is selected, nothing gets selected.
+	local function setHistoryPage(p)
+		p = math.max(0, math.min(p, historyPageCount() - 1))
+		if p == historyPage then return end
+		-- Which slot (1-8) holds the active template on the page we're leaving (nil if none)
+		local activeSlot = nil
+		for slot = 1, HISTORY_SLOTS do
+			local e = tokenHistory[histIndex(slot)]
+			if templateJSON and e and e.json == templateJSON then activeSlot = slot break end
+		end
+		historyPage = p
+		if templateJSON then
+			local slot = (activeSlot and tokenHistory[histIndex(activeSlot)]) and activeSlot or 1
+			if tokenHistory[histIndex(slot)] then
+				activateHistoryEntry(slot)   -- also refreshes the slots, arrows and dots
+				return
+			end
+		end
+		refreshHistorySlots()
+	end
+
+	function btn_historyPrev(_, _)   setHistoryPage(historyPage - 1) end   -- towards newer tokens
+	function btn_historyNext(_, _)   setHistoryPage(historyPage + 1) end   -- towards older tokens
+	function btn_historyPage_1(_, _) setHistoryPage(0) end
+	function btn_historyPage_2(_, _) setHistoryPage(1) end
+	function btn_historyPage_3(_, _) setHistoryPage(2) end
+	function btn_historyPage_4(_, _) setHistoryPage(3) end
 
 -- ──────────────────────────────────────────────────────────────
 --  HUD HISTORY HANDLERS
@@ -817,6 +989,7 @@
 			UI.hide("tc_hud_debug_ids")
 			UI.hide("tc_hud_placeBtn")
 			UI.hide("tc_hud_dragToggleBtn")
+			UI.hide("tc_hud_opacityBtn")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_root")
 			UI.hide("tc_hud_dynPanel")
@@ -850,6 +1023,7 @@
 			UI.hide("tc_hud_debug_ids")
 			UI.hide("tc_hud_placeBtn")
 			UI.hide("tc_hud_dragToggleBtn")
+			UI.hide("tc_hud_opacityBtn")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_restore")
 			UI.hide("tc_hud_root")
@@ -938,6 +1112,7 @@
 		UI.hide("tc_hud_debug_ids")
 		UI.hide("tc_hud_placeBtn")
 		UI.hide("tc_hud_dragToggleBtn")
+		UI.hide("tc_hud_opacityBtn")
 		UI.hide("tc_hud_templateVis")
 		UI.hide("tc_hud_placementOverlay")
 		UI.hide("tc_hud_dynPanel")
@@ -979,6 +1154,7 @@
 			UI.show("tc_hud_debug_ids")
 			UI.show("tc_hud_placeBtn")
 			UI.show("tc_hud_dragToggleBtn")
+			UI.show("tc_hud_opacityBtn")
 			UI.show("tc_hud_templateVis")
 		else
 			self.UI.hide("settingsPanel")
@@ -992,6 +1168,7 @@
 			UI.hide("tc_hud_debug_ids")
 			UI.hide("tc_hud_placeBtn")
 			UI.hide("tc_hud_dragToggleBtn")
+			UI.hide("tc_hud_opacityBtn")
 			UI.hide("tc_hud_templateVis")
 		end
 		-- Update settings button highlight
@@ -1016,6 +1193,16 @@
 	function btn_toggleDropTemplate(_, _)
 		dropTemplateEnabled = not dropTemplateEnabled
 		rebuildXML()
+	end
+
+	-- Opaque mode (OUI + HUD): swap every background to fully solid, or back to the shipped look.
+	-- Rebuilds both UIs so everything is drawn fresh in the new colours.
+	function btn_toggleOpacity(_, _)
+		uiOpaque = not uiOpaque
+		applyOpacity()
+		saveState()
+		rebuildXML()
+		rebuildHUD()
 	end
 
 	-- OUI setting: spawn a 3D copy of image-less templates next to the TA
@@ -1133,10 +1320,29 @@
 		end
 	end
 
+	-- Shows/hides the ‹ › arrows and page dots (OUI + HUD) to match the current page.
+	-- Dots change their background (colors), which updates reliably in place — unlike text colour.
+	local function refreshHistoryNav()
+		local pages = historyPageCount()
+		local function vis(ouiId, hudId, on)
+			if on then self.UI.show(ouiId) ; UI.show(hudId)
+			else       self.UI.hide(ouiId) ; UI.hide(hudId) end
+		end
+		vis("histPrev", "tc_hud_histPrev", historyPage > 0)
+		vis("histNext", "tc_hud_histNext", historyPage < pages - 1)
+		vis("histDots", "tc_hud_histDots", pages > 1)
+		for p = 1, HISTORY_PAGES do
+			vis("histDot" .. p, "tc_hud_histDot" .. p, p <= pages)
+			local s = BTN_STYLE[(p - 1 == historyPage) and "historyDotOn" or "historyDotOff"]
+			self.UI.setAttribute("histDot" .. p,       "colors", s.colors)
+			UI.setAttribute("tc_hud_histDot" .. p,     "colors", s.colors)
+		end
+	end
+
 	--refresh history slots using setAttribute system (prevent need for rebuilds)
 	refreshHistorySlots = function()
-		for i = 1, HISTORY_MAX do
-			local entry    = tokenHistory[i]
+		for i = 1, HISTORY_SLOTS do
+			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
 			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
@@ -1178,7 +1384,7 @@
 			UI.setAttribute("tc_hud_hist_" .. i .. "_txt",    "active",    hasImage and "False" or "True")
 			
 			-- OUI delete overlay slot
-			local delEntry = tokenHistory[i]
+			local delEntry = tokenHistory[histIndex(i)]
 			if delEntry and delEntry.imageURL and delEntry.imageURL ~= "" then
 				self.UI.setAttribute("delBtn" .. i, "image", delEntry.imageURL)
 			end
@@ -1194,6 +1400,7 @@
 			UI.setAttribute("tc_hud_delBtn" .. i .. "_img",      "image",  imgURL)
 			UI.setAttribute("tc_hud_delBtn" .. i .. "_img",      "active", hasImage and "True" or "False")
 		end
+		refreshHistoryNav()
 	end
 
 	--improved dyn_btn animations
@@ -1260,7 +1467,7 @@
 		table.insert(lines, '  width="300" height="300"')
 		table.insert(lines, '  color="#00000000">')
 		table.insert(lines, '  <Image id="previewImg" image="' .. previewImage .. '" width="150" height="150" preserveAspect="true" active="' .. (hasImage and "True" or "False") .. '" />')
-		table.insert(lines, '  <Panel id="previewTextPanel" width="150" height="150" color="#000000CC" rectAlignment="MiddleCenter" active="' .. (hasImage and "False" or "True") .. '">')
+		table.insert(lines, '  <Panel id="previewTextPanel" width="150" height="150" color="' .. op("#000000CC") .. '" rectAlignment="MiddleCenter" active="' .. (hasImage and "False" or "True") .. '">')
 		table.insert(lines, '    <Text id="previewText" text="' .. previewText .. '" fontSize="22" color="#FFFFFF" fontStyle="Bold" alignment="MiddleCenter" width="140" height="140" />')
 		table.insert(lines, '  </Panel>')
 		table.insert(lines, '</Panel>')
@@ -1272,8 +1479,8 @@
 	    table.insert(lines,   ' width="448" height="228"')
 	    table.insert(lines,   ' color="#00000000">')
 	    table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
-	   for i = 1, HISTORY_MAX do
-			local entry    = tokenHistory[i]
+	   for i = 1, HISTORY_SLOTS do
+			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
 			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
@@ -1317,21 +1524,43 @@
 		table.insert(lines, '  width="448" height="228"')
 		table.insert(lines, '  color="#00000000">')
 		table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
-		for i = 1, HISTORY_MAX do
-			local entry = tokenHistory[i]
+		for i = 1, HISTORY_SLOTS do
+			local entry = tokenHistory[histIndex(i)]
 			table.insert(lines, '    <Button id="delBtn' .. i .. '"')
 			table.insert(lines, '      onClick="btn_deleteHistory_' .. i .. '"')
 			table.insert(lines, '      ' .. btnStyle("danger"))
 			table.insert(lines, '      width="100" height="100"')
 			table.insert(lines, '      padding="3 3 3 3">')
-			if entry and entry.imageURL and entry.imageURL ~= "" then
-				table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. entry.imageURL .. '" width="100" height="100" preserveAspect="true" />')
-			end
+			-- Always created (hidden when empty) so a page turn can fill it via setAttribute
+			local dImg = (entry and entry.imageURL) or ""
+			table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. dImg .. '" width="100" height="100" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
 			table.insert(lines, '      <Panel width="100" height="100" color="#AA000066" />')
 			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="50" alignment="MiddleCenter" /></Button>')
 		end
 		table.insert(lines, '  </GridLayout>')
 		table.insert(lines, '</Panel>')
+
+		-- ── History paging: ‹ › arrows flush against the grid's left/right edges + page dots ──
+		-- Grid spans x -224..222, y -266..-488 (both rows, 222 tall). Arrows are 14 wide, full
+		-- grid height, 0px gap:  left x -238..-224   right x 222..236
+		-- Shown/hidden live by refreshHistoryNav.
+		local hPages = historyPageCount()
+		local function ouiArrow(id, onClick, tooltip, label, x, on)
+			return '<Button id="' .. id .. '" onClick="' .. onClick .. '" ' .. btnStyle("historyNav")
+				.. ' position="' .. x .. ' -377 -30" rotation="0 0 0" width="14" height="222" tooltip="' .. tooltip .. '"'
+				.. ' active="' .. (on and "True" or "False") .. '">'
+				.. '<Text text="' .. label .. '" color="' .. BTN_STYLE.historyNav.textColor .. '" fontSize="18" fontStyle="Bold" alignment="MiddleCenter" /></Button>'
+		end
+		table.insert(lines, ouiArrow("histPrev", "btn_historyPrev", "Newer tokens", "&lt;", -231, historyPage > 0))
+		table.insert(lines, ouiArrow("histNext", "btn_historyNext", "Older tokens", "&gt;",  229, historyPage < hPages - 1))
+		-- Page dots in the gap between Add Token and the history (only when there's more than one page)
+		table.insert(lines, '<HorizontalLayout id="histDots" position="0 -258 -30" rotation="0 0 0" width="96" height="12" spacing="8" childAlignment="MiddleCenter" childForceExpandWidth="false" childForceExpandHeight="false" active="' .. (hPages > 1 and "True" or "False") .. '">')
+		for p = 1, HISTORY_PAGES do
+			table.insert(lines, '  <Button id="histDot' .. p .. '" onClick="btn_historyPage_' .. p .. '" '
+				.. btnStyle((p - 1 == historyPage) and "historyDotOn" or "historyDotOff")
+				.. ' preferredWidth="12" preferredHeight="12" tooltip="Page ' .. p .. '" active="' .. (p <= hPages and "True" or "False") .. '" />')
+		end
+		table.insert(lines, '</HorizontalLayout>')
 
 	    -- ── Settings button ──
 	    table.insert(lines, '<Button id="settingsBtn"')
@@ -1363,7 +1592,7 @@
 		table.insert(lines, '  position="-350 -352 -20"')
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="222" height="172"')  -- title 20 + 3 rows × 44 + 3 gaps × 4 + 8 padding
-		table.insert(lines, '  color="#2B1A00F2">')
+		table.insert(lines, '  color="' .. op("#2B1A00F2") .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
 		table.insert(lines, '    <Text text="Token History" color="' .. BTN_STYLE.template.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="214" preferredHeight="20" />')
 		local eStyle = historyEditMode and "danger" or "settingsItem"
@@ -1395,7 +1624,7 @@
 		table.insert(lines, '  position="-576 -346 -20"')
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="216" height="160"')  -- title 20 + 3 rows × 40 + 3 gaps × 4 + 8 padding
-		table.insert(lines, '  color="#1A1A1AF2">')
+		table.insert(lines, '  color="' .. op("#1A1A1AF2") .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
 		table.insert(lines, '    <Text text="Token Creation" color="' .. BTN_STYLE.template.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="208" preferredHeight="20" />')
 		table.insert(lines, '    <Button onClick="btn_toggleSetTemplate"')
@@ -1426,16 +1655,24 @@
 		table.insert(lines, '  position="-460 -475 -25"')
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="448" height="58"') 	-- 1 row × 50 + 8 padding
-		table.insert(lines, '  color="#484716F2">')
-		table.insert(lines, '  <VerticalLayout padding="4 4 4 4" childAlignment="MiddleCenter">')
+		table.insert(lines, '  color="' .. op("#484716F2") .. '">')
+		-- [ HUD: ON (290) ][ Opaque (146) ] — 290 + 4 gap + 146 = 440 (panel 448 − 8 padding)
+		table.insert(lines, '  <HorizontalLayout spacing="4" padding="4 4 4 4" childAlignment="MiddleCenter">')
 		local hStyle = hudEnabled and "toggleOn" or "danger"
 		table.insert(lines, '    <Button id="hudToggleBtn"')
 		table.insert(lines, '      onClick="btn_toggleHUD"')
 		table.insert(lines, '      tooltip="Show or hide the on-screen HUD"')
 		table.insert(lines, '      ' .. btnStyle(hStyle))
-		table.insert(lines, '      fontSize="22" preferredWidth="440" preferredHeight="50"')
+		table.insert(lines, '      fontSize="22" preferredWidth="290" preferredHeight="50"')
 		table.insert(lines, '      >' .. (hudEnabled and "HUD: ON" or "HUD: OFF") .. '</Button>')
-		table.insert(lines, '  </VerticalLayout>')
+		local oStyle = uiOpaque and "toggleOn" or "danger"
+		table.insert(lines, '    <Button id="opacityToggleBtn"')
+		table.insert(lines, '      onClick="btn_toggleOpacity"')
+		table.insert(lines, '      tooltip="Opaque: make every Token Applier background fully solid (object + HUD)"')
+		table.insert(lines, '      ' .. btnStyle(oStyle))
+		table.insert(lines, '      fontSize="18" preferredWidth="146" preferredHeight="50"')
+		table.insert(lines, '      ><Text text="' .. (uiOpaque and "Opaque: ON" or "Opaque: OFF") .. '" color="' .. BTN_STYLE[oStyle].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '  </HorizontalLayout>')
 		table.insert(lines, '</Panel>')
 
 		-- ── Debug Settings panel (bottom; grey so it doesn't draw the eye) ──
@@ -1447,7 +1684,7 @@
 		table.insert(lines, '  position="-460 -550 -25"')
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="448" height="76"') 	-- title 20 + 1 row × 44 + 1 gap × 4 + 8 padding
-		table.insert(lines, '  color="#1E1E1EF2">')
+		table.insert(lines, '  color="' .. op("#1E1E1EF2") .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
 		table.insert(lines, '    <Text text="Debug Settings" color="' .. BTN_STYLE.debug.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="440" preferredHeight="20" />')
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" preferredHeight="44">')
@@ -1496,7 +1733,7 @@
 		
 		-- ── Size warning panel ──
 		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large object — expect some lag" or "⚠ Large object"
-		local warnColor = templateCache.byteSize > SIZE_MASSIVE and "#5A1A00F2" or "#3A3A0AF2"
+		local warnColor = op(templateCache.byteSize > SIZE_MASSIVE and "#5A1A00F2" or "#3A3A0AF2")
 		local warnActive = templateCache.byteSize > SIZE_LARGE and "True" or "False"
 		table.insert(lines, '<Panel id="sizeWarningPanel"')
 		table.insert(lines, '  active="' .. warnActive .. '"')
@@ -1677,8 +1914,8 @@
 		table.insert(lines, '      childAlignment="UpperLeft"')
 		table.insert(lines, '      width="225" height="111">')
 
-	    for i = 1, HISTORY_MAX do
-			local entry    = tokenHistory[i]
+	    for i = 1, HISTORY_SLOTS do
+			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
 			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
@@ -1723,31 +1960,54 @@
 		table.insert(lines, '  width="225" height="111"')
 		table.insert(lines, '  color="#00000000">')
 		table.insert(lines, '  <GridLayout cellSize="54 54" spacing="3 3" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="225" height="111">')
-		for i = 1, HISTORY_MAX do
-			local entry = tokenHistory[i]
+		for i = 1, HISTORY_SLOTS do
+			local entry = tokenHistory[histIndex(i)]
 			local g = guid
 			table.insert(lines, '    <Button id="tc_hud_delBtn' .. i .. '"')
 			table.insert(lines, '      onClick="' .. g .. '/hud_deleteHistory_' .. i .. '"')
 			table.insert(lines, '      ' .. btnStyle("danger"))
 			table.insert(lines, '      width="54" height="54"')
 			table.insert(lines, '      padding="2 2 2 2">')
-			if entry and entry.imageURL and entry.imageURL ~= "" then
-				table.insert(lines, '      <Image id="tc_hud_delBtn' .. i .. '_img" image="' .. entry.imageURL .. '" width="50" height="50" preserveAspect="true" />')
-			end
+			-- Always created (hidden when empty) so a page turn can fill it via setAttribute
+			local dImg = (entry and entry.imageURL) or ""
+			table.insert(lines, '      <Image id="tc_hud_delBtn' .. i .. '_img" image="' .. dImg .. '" width="50" height="50" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
 			table.insert(lines, '      <Panel width="54" height="54" color="#AA000066" />')
 			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="28" alignment="MiddleCenter" /></Button>')
 		end
 		table.insert(lines, '  </GridLayout>')
 		table.insert(lines, '</Panel><!--tc_hud_deleteOverlayPanel-->') -- end deleteOverlayPanel
+
+		-- ── HUD history paging: ‹ › arrows + page dots (mirrors the OUI) ──
+		-- Grid spans x -112..112, y 31..142; row boundary y ≈ 86.
+		-- Arrows are 10 wide, full grid height (111), 0px gap against the grid:
+		--   left  x -122.5..-112.5 (Token History panel ends at -132)
+		--   right x  112.5..122.5  (dynamic panel starts at 128)
+		-- Dots sit inside the bottom edge of Add Token (y 145..189) — there's no gap above the grid.
+		local hudPages = historyPageCount()
+		local function hudArrow(id, onClick, tooltip, label, x, on)
+			return '<Button id="' .. id .. '" rectAlignment="LowerCenter" offsetXY="' .. x .. ' 31" width="10" height="111"'
+				.. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle("historyNav") .. ' tooltip="' .. tooltip .. '"'
+				.. ' active="' .. (on and "True" or "False") .. '">'
+				.. '<Text text="' .. label .. '" color="' .. BTN_STYLE.historyNav.textColor .. '" fontSize="12" fontStyle="Bold" alignment="MiddleCenter" /></Button>'
+		end
+		table.insert(lines, hudArrow("tc_hud_histPrev", "btn_historyPrev", "Newer tokens", "&lt;", -117.5, historyPage > 0))
+		table.insert(lines, hudArrow("tc_hud_histNext", "btn_historyNext", "Older tokens", "&gt;",  117.5, historyPage < hudPages - 1))
+		table.insert(lines, '<HorizontalLayout id="tc_hud_histDots" rectAlignment="LowerCenter" offsetXY="0 148" width="60" height="7" spacing="5" childAlignment="MiddleCenter" childForceExpandWidth="false" childForceExpandHeight="false" active="' .. (hudPages > 1 and "True" or "False") .. '">')
+		for p = 1, HISTORY_PAGES do
+			table.insert(lines, '  <Button id="tc_hud_histDot' .. p .. '" onClick="' .. g .. '/btn_historyPage_' .. p .. '" '
+				.. btnStyle((p - 1 == historyPage) and "historyDotOn" or "historyDotOff")
+				.. ' preferredWidth="7" preferredHeight="7" tooltip="Page ' .. p .. '" active="' .. (p <= hudPages and "True" or "False") .. '" />')
+		end
+		table.insert(lines, '</HorizontalLayout>')
 	
 
 	    -- ── Footer strip: [⚙][—— minimise ——] ──
-	    -- Together they span the CORE width (x -118..118) so they read as one bar:
-	    --   ⚙ x -118..-92, 2px gap, minimise x -90..118
+	    -- Together they span the history grid's width (x -112.5..112.5) so they line up with it:
+	    --   ⚙ x -112.5..-86.5, 2px gap, minimise x -84.5..112.5
 	    table.insert(lines, '<Button id="tc_hud_minimize"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
 	    table.insert(lines, '  offsetXY="14 2"')
-	    table.insert(lines, '  width="208" height="26"')
+	    table.insert(lines, '  width="197" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
 	    table.insert(lines, '  ' .. btnStyle("hudHide"))
 	    table.insert(lines, '  fontSize="12"')
@@ -1757,7 +2017,7 @@
 	    -- ── Settings button (1:1 square, left end of the footer strip) ──
 	    table.insert(lines, '<Button id="tc_hud_settings"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-105 2"')
+	    table.insert(lines, '  offsetXY="-99.5 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleSettings"')
 	    table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
@@ -1767,24 +2027,27 @@
 		table.insert(lines, '  ><Text text="⚙" color="' .. ss.textColor .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
 		-- HUD layout (offsets from tc_hud_root's bottom-centre; x = button centre, y = button bottom)
-		--   Token History panel   x -240..-120  y 61..176   (left of the history grid, which spans x -112..112)
-		--   HUD row               x -240..-120  y 31..57    [HUD][Place][Drag]
-		--   Debug row             x -207..-121  y 2..28     [F][↺][ID]  then the footer strip [⚙][minimise] (x -118..118)
+		--   Token History panel   x -252..-132  y 61..176   (left of the history grid, which spans x -112..112; gap holds the < arrow)
+		--   HUD row               x -252..-132  y 31..57    [HUD][Place][Drag][Solid]
+		--   Debug row             x -252..-166  y 2..28     [F][↺][ID]  (left edge lines up with Token History + HUD row); footer strip [⚙][minimise] x -112.5..112.5
 
-	    -- ── HUD row: HUD on/off, Place HUD, HUD Drag (only while settings are open) ──
+	    -- ── HUD row: HUD on/off, Place HUD, HUD Drag, Solid/Opaque (only while settings are open) ──
+	    -- 4 buttons × 27 wide + 3 gaps × 4 = 120, filling x -252..-132; centres -238.5 / -207.5 / -176.5 / -145.5
 	    local function hudRowBtn(id, onClick, tooltip, style, label, x)
 	        local s = BTN_STYLE[style]
 	        return '<Button id="' .. id .. '" active="' .. (settingsOpen and "True" or "False") .. '"'
-	            .. ' rectAlignment="LowerCenter" offsetXY="' .. x .. ' 31" width="38" height="26"'
+	            .. ' rectAlignment="LowerCenter" offsetXY="' .. x .. ' 31" width="27" height="26"'
 	            .. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle(style) .. ' tooltip="' .. tooltip .. '">'
-	            .. '<Text id="' .. id .. '_text" text="' .. label .. '" color="' .. s.textColor .. '" fontSize="9" alignment="MiddleCenter" /></Button>'
+	            .. '<Text id="' .. id .. '_text" text="' .. label .. '" color="' .. s.textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="9" alignment="MiddleCenter" /></Button>'
 	    end
 	    table.insert(lines, hudRowBtn("tc_hud_off", "btn_toggleHUD", "Toggle HUD on/off",
-	        hudEnabled and "toggleOn" or "danger", hudEnabled and "HUD" or "OFF", -221))
+	        hudEnabled and "toggleOn" or "danger", hudEnabled and "HUD" or "OFF", -238.5))
 	    table.insert(lines, hudRowBtn("tc_hud_placeBtn", "btn_toggleHudPlacement", "Place HUD: choose a fixed position for the HUD",
-	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -180))
+	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -207.5))
 	    table.insert(lines, hudRowBtn("tc_hud_dragToggleBtn", "btn_toggleHudDraggable", "HUD Drag: allow the HUD to be dragged anywhere on screen",
-	        hudDraggable and "toggleOn" or "danger", "Drag", -139))
+	        hudDraggable and "toggleOn" or "danger", "Drag", -176.5))
+	    table.insert(lines, hudRowBtn("tc_hud_opacityBtn", "btn_toggleOpacity", "Solid: make every Token Applier background fully opaque (HUD + object)",
+	        uiOpaque and "toggleOn" or "danger", "Solid", -145.5))
 
 	    -- ── Set Template button (independent) ──
 	    table.insert(lines, '<Button id="tc_hud_setTemplate"')
@@ -1804,14 +2067,21 @@
 		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large" or "⚠ Large object"
 		local warnColor = templateCache.byteSize > SIZE_MASSIVE and "#5A1A00FF" or "#3A3A0AFF"
 		local warnActive = templateCache.byteSize > SIZE_LARGE and "True" or "False"
-		table.insert(lines, '<Panel id="tc_hud_sizeWarning"')
+		-- Thin strip along the TOP edge inside Add Token (y 180..191: raised 3px so it sits on Add Token's top edge, which is at 189),
+		-- same width as Add Token (225). The page dots use Add Token's bottom edge.
+		-- It's a non-clickable Button rather than a Panel purely to get TTS's rounded corners
+		-- (Panels are always square). All 4 colour states are the same, so it never reacts;
+		-- raycastTarget="false" lets clicks on it reach Add Token underneath.
+		local warnColors = warnColor .. "|" .. warnColor .. "|" .. warnColor .. "|" .. warnColor
+		table.insert(lines, '<Button id="tc_hud_sizeWarning"')
 		table.insert(lines, '  active="' .. warnActive .. '"')
 		table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="0 140"')
-		table.insert(lines, '  width="224" height="14"')
-		table.insert(lines, '  color="' .. warnColor .. '">')
-		table.insert(lines, '  <Text id="tc_hud_sizeWarningText" text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" />')
-		table.insert(lines, '</Panel>')
+		table.insert(lines, '  offsetXY="0 180"')
+		table.insert(lines, '  width="225" height="11"')
+		table.insert(lines, '  raycastTarget="false"')
+		table.insert(lines, '  colors="' .. warnColors .. '">')
+		table.insert(lines, '  <Text id="tc_hud_sizeWarningText" text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" raycastTarget="false" />')
+		table.insert(lines, '</Button>')
 
 	    -- ── Token History panel (Edit History / Default Scale / Clear History) — left of the history grid ──
 	    -- Keeps the old id "tc_hud_settingsPanel" so existing show/hide code still works.
@@ -1822,9 +2092,9 @@
 	    table.insert(lines, '  hideAnimation="Shrink"')
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="-180 61"')
+		table.insert(lines, '  offsetXY="-192 61"')
 	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
-		table.insert(lines, '  color="#2B1A00F2">')
+		table.insert(lines, '  color="' .. op("#2B1A00F2") .. '">')
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
 	    table.insert(lines, '    <Text text="Token History" color="' .. BTN_STYLE.template.textColor .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="112" preferredHeight="14" />')
 	    -- Edit History
@@ -1861,7 +2131,7 @@
 	    table.insert(lines, '<Button id="tc_hud_restore_tokens"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-164 2"')
+	    table.insert(lines, '  offsetXY="-209 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_restoreTokens"')
 	    table.insert(lines, '  ' .. btnStyle("debug"))
@@ -1873,7 +2143,7 @@
 	    table.insert(lines, '<Button id="tc_hud_find_tokens"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-194 2"')
+	    table.insert(lines, '  offsetXY="-239 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_findTokens"')
 	    table.insert(lines, '  ' .. btnStyle("debug"))
@@ -1885,7 +2155,7 @@
 	    table.insert(lines, '<Button id="tc_hud_debug_ids"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-134 2"')
+	    table.insert(lines, '  offsetXY="-179 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_debug"')
 	    table.insert(lines, '  ' .. btnStyle("debug"))
@@ -1956,7 +2226,7 @@
 		table.insert(lines, '  animationDuration="0.1"')
 		table.insert(lines, '  active="False"')
 		table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="' .. (116 + HDYN_W/2) .. ' 0"')
+		table.insert(lines, '  offsetXY="' .. (128 + HDYN_W/2) .. ' 0"')
 		table.insert(lines, '  width="' .. HDYN_W .. '" height="' .. HDYN_H .. '"')
 		table.insert(lines, '  color="#00000000">')
 
@@ -2530,6 +2800,7 @@
 	    -- Second click: confirmed
 	    resetClearConfirm()
 	    tokenHistory  = {}
+	    historyPage   = 0
 	    templateJSON  = nil
 	    templateScale = nil
 	    refreshTemplateCache()
@@ -2553,6 +2824,9 @@
 	function onLoad()
 	    myGUID = self.getGUID()
 	    loadState()
+	    applyOpacity()                 -- before the UIs are built, so they're drawn in the saved mode
+	    historyPage = pageOfActive()   -- open on the page holding the selected template, so it's on screen
+	    checkImageFormats()   -- test any history images not checked yet (e.g. from older saves)
 		hudPlacementMode = false
 			--print("[Debug] hudVisible on load: " .. tostring(hudVisible))
 			--print("[Debug] hudPlacementMode on load: " .. tostring(hudPlacementMode))
@@ -3329,7 +3603,8 @@
 	                local tint = string.format("r%.2f g%.2f b%.2f", c.r or 1, c.g or 1, c.b or 1)
 	                print(string.format("      type:%s  nameOnly:%s  tint:%s", tostring(data.Name), tostring(entry.nameOnly), tint))
 	                local blank = url:find(BLANK_IMAGE_ID, 1, true) and "  (BLANK placeholder)" or ""
-	                print("      image: " .. (url ~= "" and url or "(none)") .. blank)
+	                local check = url ~= "" and ("  [check: " .. (imageCheck[url] or (imageCheckPending[url] and "checking…" or "not yet")) .. "]") or ""
+	                print("      image: " .. (url ~= "" and url or "(none)") .. blank .. check)
 	                -- Where else the visible artwork might come from (tool-built tokens)
 	                local decals = type(data.AttachedDecals) == "table" and #data.AttachedDecals or 0
 	                local hasLua = type(data.LuaScript) == "string" and data.LuaScript ~= ""
