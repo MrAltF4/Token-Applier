@@ -42,13 +42,16 @@
 	local CLEAR_HISTORY_LABEL = "X Clear All History"
 	local CLEAR_HISTORY_STYLE = "settingsItem"   -- normal: yellow (only visible while Edit History is live)
 	local CLEAR_ARMED_STYLE   = "danger"         -- "Sure?" state: red
+	local HUD_CLEAR_LABEL     = "X Clear All History"     -- HUD wording for the same buttons
+	local HUD_EDIT_OFF_LABEL  = "Edit History"
+	local HUD_EDIT_ON_LABEL   = "←Stop Editing History"
 	local REMOVE_CONFIRM_TIME = 3.0   -- seconds the "Sure? Click again" state waits for the second click
 
 -- TEMPLATE SIZE / HISTORY DISPLAY CONSTANTS
 	local SIZE_LARGE        = 5000    -- template JSON bytes above this = "large" (yellow warning)
 	local SIZE_MASSIVE      = 20000   -- above this = "massive" (red warning)
 	local SIZE_BADGE_COLOR  = { large = "#E6C619", massive = "#D93030" }   -- history slot badge colours
-	local NAME_ONLY_TYPES   = { Custom_Token = true }   -- object types whose history slot shows the name instead of the image
+	local NAME_ONLY_TYPES   = { Custom_Token = true }   -- types whose history slot shows the name instead of the image WHEN TINTED (white silhouettes)
 
 -- ──────────────────────────────────────────────────────────────
 --  STATE VARIABLES
@@ -201,9 +204,9 @@
 	        textColor  = "#888888",
 	        transition = "ColorTint",
 	    },
-		hudPosition = {
-	        colors     = "#1A1A1AF2|#2A2A2AF2|#111111F2|#333333AA",
-	        textColor  = "#888888",
+		hudPosition = {   -- Place HUD location icons: same blue as Add Token so they pop
+	        colors     = "#0D2B40F2|#1A5C8AF2|#0A1F2EF2|#333333AA",
+	        textColor  = "#3CCCFF",
 	        transition = "ColorTint",
 	    },
 		-- Any toggle in its ON state
@@ -238,6 +241,23 @@
 	        .. 'transition="' .. s.transition .. '"'
 	end
 
+	-- Live-updates a button whose label is a child Text with id "<id>_text".
+	-- ui = UI (HUD) or self.UI (OUI).
+	-- TTS QUIRK: a Button's own textColor (set at build time by btnStyle) gets re-applied over
+	-- its child Text when the button's colours change. So textColor must be updated on the
+	-- Button too, or a button built in its red "off" state keeps red text after turning on.
+	local function setButtonLook(ui, id, text, styleName)
+	    local s = BTN_STYLE[styleName] or BTN_STYLE.ghost
+	    ui.setAttribute(id,            "colors",    s.colors)
+	    ui.setAttribute(id,            "textColor", s.textColor)
+	    if text then ui.setAttribute(id .. "_text", "text", text) end
+	    ui.setAttribute(id .. "_text", "color",     s.textColor)
+	end
+
+	local function setHudButtonLook(id, text, styleName)
+	    setButtonLook(UI, id, text, styleName)
+	end
+
 -- ──────────────────────────────────────────────────────────────
 --  IMAGE URL EXTRACTION
 -- ──────────────────────────────────────────────────────────────
@@ -259,6 +279,17 @@
 	        end
 	    end
 	    return nil
+	end
+
+	-- Blank placeholder image used by tool-built tokens (their artwork comes from elsewhere,
+	-- e.g. decals). Matched by its unique ID so any Steam server address counts.
+	local BLANK_IMAGE_ID = "E4C9AE9685105F12A3D4D3DC534616786D5D7666"
+
+	-- An image worth displaying: nil when there's no image or it's the blank placeholder
+	local function usefulImageURL(data)
+	    local url = extractImageURL(data)
+	    if not url or url:find(BLANK_IMAGE_ID, 1, true) then return nil end
+	    return url
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -308,17 +339,26 @@
 --  HISTORY ENTRY INFO  (size badge + name-only display)
 -- ──────────────────────────────────────────────────────────────
 
-	-- Fills in display info on a history entry: byteSize (for the size badge) and, for
-	-- name-only types (e.g. white custom tokens), blanks the image so the slot shows the name.
-	-- nameOnly is saved with the entry, so the JSON is only decoded once per entry.
+	-- True if the object is colour-tinted (any channel noticeably below white).
+	-- White silhouette tokens get their colour from a tint; community icons have the
+	-- colour baked into the image and are left untinted (r1 g1 b1).
+	local function isTinted(data)
+		local c = type(data.ColorDiffuse) == "table" and data.ColorDiffuse or nil
+		if not c then return false end
+		return (c.r or 1) < 0.95 or (c.g or 1) < 0.95 or (c.b or 1) < 0.95
+	end
+
+	-- Fills in display info on a history entry: byteSize (for the size badge), and decides
+	-- image vs name: a NAME_ONLY_TYPES object that is tinted (likely a white silhouette)
+	-- shows its name; everything else shows its image.
+	-- Re-decided every time (incl. on load), so older entries pick up rule changes.
 	local function prepareHistoryEntry(entry)
 		if type(entry) ~= "table" or type(entry.json) ~= "string" then return end
 		entry.byteSize = #entry.json
-		if entry.nameOnly == nil then
-			local ok, data = pcall(JSON.decode, entry.json)
-			entry.nameOnly = (ok and type(data) == "table" and NAME_ONLY_TYPES[data.Name]) or false
-		end
-		if entry.nameOnly then entry.imageURL = "" end
+		local ok, data = pcall(JSON.decode, entry.json)
+		if not ok or type(data) ~= "table" then return end
+		entry.nameOnly = (NAME_ONLY_TYPES[data.Name] and isTinted(data)) or false
+		entry.imageURL = entry.nameOnly and "" or (usefulImageURL(data) or "")   -- blank placeholder → name
 	end
 
 	-- nil (normal size), "large" or "massive"
@@ -524,7 +564,7 @@
 		local n = (data.Nickname and data.Nickname ~= "") and data.Nickname
 			   or (data.Name    and data.Name    ~= "") and data.Name
 		local cleanName = n and stripBBCode(n) or nil
-		local imageURL  = extractImageURL(data) or ""
+		local imageURL  = usefulImageURL(data) or ""   -- blank placeholder → TA face shows the name instead
 		templateCache = {
 			label    = cleanName and ("Set Template\n[" .. cleanName .. "]") or "Set Template\n[custom]",
 			imageURL = imageURL,
@@ -609,10 +649,11 @@
 			UI.hide("tc_hud_deleteOverlayPanel")
 		end
 		local style = on and "danger" or "settingsItem"
-		self.UI.setAttribute("editHistoryBtn",      "colors", BTN_STYLE[style].colors)
-		self.UI.setAttribute("editHistoryBtn_text", "text",   on and "←Stop Editing History" or "Edit History")
-		self.UI.setAttribute("editHistoryBtn_text", "color",  BTN_STYLE[style].textColor)
-		self.UI.setAttribute("clearHistoryBtn",     "active", on and "True" or "False")
+		setButtonLook(self.UI, "editHistoryBtn", on and "←Stop Editing History" or "Edit History", style)
+		self.UI.setAttribute("clearHistoryBtn", "active", on and "True" or "False")
+		-- HUD versions
+		setHudButtonLook("tc_hud_editHistoryBtn", on and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL, style)
+		UI.setAttribute("tc_hud_clearHistoryBtn", "active", on and "True" or "False")
 	end
 
 	-- HistoryEdit button
@@ -705,10 +746,7 @@
 
 	-- Switches the Remove All button between its normal (yellow) and armed "Sure?" (red) look
 	local function setRemoveAllLook(text, styleName)
-		local s = BTN_STYLE[styleName]
-		UI.setAttribute("tc_hud_dynRemoveAll",      "colors",    s.colors)
-		UI.setAttribute("tc_hud_dynRemoveAll_text", "text",      text)
-		UI.setAttribute("tc_hud_dynRemoveAll_text", "color",     s.textColor)
+		setHudButtonLook("tc_hud_dynRemoveAll", text, styleName)
 	end
 
 	local function resetRemoveConfirm()
@@ -776,6 +814,9 @@
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_find_tokens")
+			UI.hide("tc_hud_debug_ids")
+			UI.hide("tc_hud_placeBtn")
+			UI.hide("tc_hud_dragToggleBtn")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_root")
 			UI.hide("tc_hud_dynPanel")
@@ -806,6 +847,9 @@
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_find_tokens")
+			UI.hide("tc_hud_debug_ids")
+			UI.hide("tc_hud_placeBtn")
+			UI.hide("tc_hud_dragToggleBtn")
 			UI.hide("tc_hud_templateVis")
 			UI.hide("tc_hud_restore")
 			UI.hide("tc_hud_root")
@@ -815,10 +859,8 @@
 			settingsOpen = false
 		end
 		rebuildXML()
-		local si = BTN_STYLE[hudEnabled and "settingsItem" or "danger"]
-		UI.setAttribute("tc_hud_off", "colors",    si.colors)
-		UI.setAttribute("tc_hud_off", "textColor", si.textColor)
-		UI.setAttribute("tc_hud_off", "text",      hudEnabled and "HUD" or "OFF")
+		setHudButtonLook("tc_hud_off", hudEnabled and "HUD" or "OFF", hudEnabled and "toggleOn" or "danger")
+		rebuildHUD()   -- recolouring in place doesn't stick on HUD buttons (TTS quirk); a rebuild draws them fresh
 	end
 
 	function hud_toggleSettings(player, _, _)
@@ -829,7 +871,7 @@
 	local function refreshDefaultScaleLabel()
 		local label = string.format("%.1f", defaultScaleOffset)
 		self.UI.setAttribute("defaultScaleLabel", "text", "Default Scale: " .. label)
-		UI.setAttribute("tc_hud_defaultScaleLabel", "text", label)
+		UI.setAttribute("tc_hud_defaultScaleLabel", "text", "Default Scale: " .. label)
 	end
 
 	function btn_defaultScaleUp(_, _)
@@ -857,12 +899,10 @@
 			saveState()
 		end
 		UI.setAttribute("tc_hud_root", "allowDragging", hudDraggable and "true" or "false")
-		UI.setAttribute("tc_hud_dragToggleBtn", "text", hudDraggable and "HUD Drag: ON" or "HUD Drag: OFF")
-		local dStyle = BTN_STYLE[hudDraggable and "toggleOn" or "settingsItem"]
-		UI.setAttribute("tc_hud_dragToggleBtn", "colors",    dStyle.colors)
-		UI.setAttribute("tc_hud_dragToggleBtn", "textColor", dStyle.textColor)
+		setHudButtonLook("tc_hud_dragToggleBtn", "Drag", hudDraggable and "toggleOn" or "danger")
+		rebuildHUD()   -- see btn_toggleHUD: rebuild so the button's text colour is correct
 	end
-	
+
 	function btn_toggleHudPlacement(_, _)
 		hudPlacementMode = not hudPlacementMode
 		if hudPlacementMode then
@@ -870,6 +910,8 @@
 		else
 			UI.hide("tc_hud_placementOverlay")
 		end
+		setHudButtonLook("tc_hud_placeBtn", hudPlacementMode and "Cancel" or "Place", hudPlacementMode and "toggleOn" or "settingsItem")
+		rebuildHUD()   -- see btn_toggleHUD
 	end
 
 	function btn_selectHudPosition(player, _, id)
@@ -893,6 +935,9 @@
 		UI.hide("tc_hud_off")
 		UI.hide("tc_hud_restore_tokens")
 		UI.hide("tc_hud_find_tokens")
+		UI.hide("tc_hud_debug_ids")
+		UI.hide("tc_hud_placeBtn")
+		UI.hide("tc_hud_dragToggleBtn")
 		UI.hide("tc_hud_templateVis")
 		UI.hide("tc_hud_placementOverlay")
 		UI.hide("tc_hud_dynPanel")
@@ -931,6 +976,9 @@
 			UI.show("tc_hud_off")
 			UI.show("tc_hud_restore_tokens")
 			UI.show("tc_hud_find_tokens")
+			UI.show("tc_hud_debug_ids")
+			UI.show("tc_hud_placeBtn")
+			UI.show("tc_hud_dragToggleBtn")
 			UI.show("tc_hud_templateVis")
 		else
 			self.UI.hide("settingsPanel")
@@ -941,6 +989,9 @@
 			UI.hide("tc_hud_off")
 			UI.hide("tc_hud_restore_tokens")
 			UI.hide("tc_hud_find_tokens")
+			UI.hide("tc_hud_debug_ids")
+			UI.hide("tc_hud_placeBtn")
+			UI.hide("tc_hud_dragToggleBtn")
 			UI.hide("tc_hud_templateVis")
 		end
 		-- Update settings button highlight
@@ -957,6 +1008,8 @@
 		else
 			UI.show("tc_hud_setTemplate")
 		end
+		setHudButtonLook("tc_hud_templateVis", hideSetTemplate and "O" or "I", hideSetTemplate and "danger" or "toggleOn")
+		rebuildHUD()   -- see btn_toggleHUD
 		rebuildXML()
 	end
 	
@@ -1316,12 +1369,13 @@
 		local eStyle = historyEditMode and "danger" or "settingsItem"
 		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(eStyle) .. ' fontSize="20" preferredWidth="214" preferredHeight="44"><Text id="editHistoryBtn_text" text="' .. (historyEditMode and "←Stop Editing History" or "Edit History") .. '" color="' .. BTN_STYLE[eStyle].textColor .. '" fontSize="20" /></Button>')
 		-- Default token scale (moved here from the main settings panel)
+		-- Stepper layout: label on the left, [–][+] side by side on the right
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" preferredHeight="44">')
+		table.insert(lines, '      <Text id="defaultScaleLabel" text="Default Scale: ' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" resizeTextForBestFit="true" resizeTextMinSize="10" resizeTextMaxSize="16" alignment="MiddleLeft" preferredWidth="118" preferredHeight="44" />')
 		table.insert(lines, '      <Button onClick="btn_defaultScaleDown"')
 		table.insert(lines, '        tooltip="Decrease default spawn scale"')
 		table.insert(lines, '        ' .. btnStyle("settingsItem"))
 		table.insert(lines, '        fontSize="22" preferredWidth="44" preferredHeight="44">–</Button>')
-		table.insert(lines, '      <Text id="defaultScaleLabel" text="Default Scale: ' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" resizeTextForBestFit="true" resizeTextMinSize="10" resizeTextMaxSize="16" alignment="MiddleCenter" preferredWidth="118" preferredHeight="44" />')
 		table.insert(lines, '      <Button onClick="btn_defaultScaleUp"')
 		table.insert(lines, '        tooltip="Increase default spawn scale"')
 		table.insert(lines, '        ' .. btnStyle("settingsItem"))
@@ -1663,7 +1717,7 @@
 		
 		-- ── HUD Delete overlay panel ──
 		table.insert(lines, '<Panel id="tc_hud_deleteOverlayPanel"')
-		table.insert(lines, '  active="False"')
+		table.insert(lines, '  active="' .. (historyEditMode and "True" or "False") .. '"')	-- survives a rebuild mid-edit
 		table.insert(lines, '  rectAlignment="LowerCenter"')
 		table.insert(lines, '  offsetXY="0 31"')  --attempt to move the location of this panel
 		table.insert(lines, '  width="225" height="111"')
@@ -1687,22 +1741,23 @@
 		table.insert(lines, '</Panel><!--tc_hud_deleteOverlayPanel-->') -- end deleteOverlayPanel
 	
 
-	    -- ── Minimize footer bar ──
-	    -- Spans the CORE width, sits below it
+	    -- ── Footer strip: [⚙][—— minimise ——] ──
+	    -- Together they span the CORE width (x -118..118) so they read as one bar:
+	    --   ⚙ x -118..-92, 2px gap, minimise x -90..118
 	    table.insert(lines, '<Button id="tc_hud_minimize"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="0 2"')
-	    table.insert(lines, '  width="236" height="26"')
+	    table.insert(lines, '  offsetXY="14 2"')
+	    table.insert(lines, '  width="208" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
 	    table.insert(lines, '  ' .. btnStyle("hudHide"))
 	    table.insert(lines, '  fontSize="12"')
 	    table.insert(lines, '  tooltip="Minimise HUD"')
 	    table.insert(lines, '  >— minimise —</Button>')
 
-	    -- ── Settings button (1:1 square, bottom-left of CORE) ──
+	    -- ── Settings button (1:1 square, left end of the footer strip) ──
 	    table.insert(lines, '<Button id="tc_hud_settings"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-133 2"')
+	    table.insert(lines, '  offsetXY="-105 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleSettings"')
 	    table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
@@ -1711,18 +1766,25 @@
 		local ss = BTN_STYLE.settings
 		table.insert(lines, '  ><Text text="⚙" color="' .. ss.textColor .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
-	    -- ── HUD OFF button (appears left of settings when settings open) ──
-	    table.insert(lines, '<Button id="tc_hud_off"')
-	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
-	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-160 2"')
-	    table.insert(lines, '  width="26" height="26"')
-	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleHUD"')
-	    table.insert(lines, '  ' .. btnStyle(hudEnabled and "settingsItem" or "danger"))
-	    table.insert(lines, '  fontSize="10"')
-	    table.insert(lines, '  tooltip="Toggle HUD on/off"')
-	    local si = BTN_STYLE[hudEnabled and "settingsItem" or "danger"]
-		table.insert(lines, '  ><Text text="' .. (hudEnabled and "HUD" or "OFF") .. '" color="' .. si.textColor .. '" fontSize="8" width="26" height="26" alignment="MiddleCenter" /></Button>')
+		-- HUD layout (offsets from tc_hud_root's bottom-centre; x = button centre, y = button bottom)
+		--   Token History panel   x -240..-120  y 61..176   (left of the history grid, which spans x -112..112)
+		--   HUD row               x -240..-120  y 31..57    [HUD][Place][Drag]
+		--   Debug row             x -207..-121  y 2..28     [F][↺][ID]  then the footer strip [⚙][minimise] (x -118..118)
+
+	    -- ── HUD row: HUD on/off, Place HUD, HUD Drag (only while settings are open) ──
+	    local function hudRowBtn(id, onClick, tooltip, style, label, x)
+	        local s = BTN_STYLE[style]
+	        return '<Button id="' .. id .. '" active="' .. (settingsOpen and "True" or "False") .. '"'
+	            .. ' rectAlignment="LowerCenter" offsetXY="' .. x .. ' 31" width="38" height="26"'
+	            .. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle(style) .. ' tooltip="' .. tooltip .. '">'
+	            .. '<Text id="' .. id .. '_text" text="' .. label .. '" color="' .. s.textColor .. '" fontSize="9" alignment="MiddleCenter" /></Button>'
+	    end
+	    table.insert(lines, hudRowBtn("tc_hud_off", "btn_toggleHUD", "Toggle HUD on/off",
+	        hudEnabled and "toggleOn" or "danger", hudEnabled and "HUD" or "OFF", -221))
+	    table.insert(lines, hudRowBtn("tc_hud_placeBtn", "btn_toggleHudPlacement", "Place HUD: choose a fixed position for the HUD",
+	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -180))
+	    table.insert(lines, hudRowBtn("tc_hud_dragToggleBtn", "btn_toggleHudDraggable", "HUD Drag: allow the HUD to be dragged anywhere on screen",
+	        hudDraggable and "toggleOn" or "danger", "Drag", -139))
 
 	    -- ── Set Template button (independent) ──
 	    table.insert(lines, '<Button id="tc_hud_setTemplate"')
@@ -1751,57 +1813,47 @@
 		table.insert(lines, '  <Text id="tc_hud_sizeWarningText" text="' .. warnText .. '" fontSize="8" color="#FFAA44" alignment="MiddleCenter" />')
 		table.insert(lines, '</Panel>')
 
-	    -- ── Settings flyout panel (Clear / Edit History / Placement…) ──
-	    -- (Remove Tokens moved to the dynamic panel as "Remove All Tokens from Model")
+	    -- ── Token History panel (Edit History / Default Scale / Clear History) — left of the history grid ──
+	    -- Keeps the old id "tc_hud_settingsPanel" so existing show/hide code still works.
+	    -- Fixed height that fits its contents, so the layout never squashes the buttons.
 	    table.insert(lines, '<Panel id="tc_hud_settingsPanel"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  showAnimation="Grow"')
 	    table.insert(lines, '  hideAnimation="Shrink"')
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="-180 85"')				-- might need to tweak position
-	    table.insert(lines, '  width="120" height="101"') 	-- was 140; shrunk by one button (36 + 3 spacing) so the rest stay put
-		table.insert(lines, '  color="#1A1A1A00">') -- used to have CC at the end
-	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter">')
-	    -- Clear History
-	    table.insert(lines, '    <Button id="tc_hud_clearHistoryBtn" onClick="' .. g .. '/btn_clearHistory"')
-	    table.insert(lines, '      ' .. btnStyle("danger"))
-	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
-	    table.insert(lines, '      tooltip="Clear all token history and reset template"')
-	    table.insert(lines, '      >X Clear All History</Button>')
+		table.insert(lines, '  offsetXY="-180 61"')
+	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
+		table.insert(lines, '  color="#2B1A00F2">')
+	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
+	    table.insert(lines, '    <Text text="Token History" color="' .. BTN_STYLE.template.textColor .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="112" preferredHeight="14" />')
 	    -- Edit History
-	    table.insert(lines, '    <Button onClick="' .. g .. '/btn_toggleHistoryEdit"')
-	    table.insert(lines, '      ' .. btnStyle(historyEditMode and "danger" or "settingsItem"))
-	    table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
-	    table.insert(lines, '      tooltip="Toggle delete mode on history slots"')
-	    table.insert(lines, '      >' .. (historyEditMode and "←Stop Editing History" or "Edit History") .. '</Button>')
-		-- HUD placement selector
-		table.insert(lines, '    <Button id="tc_hud_placeBtn"')
-		table.insert(lines, '      onClick="' .. g .. '/btn_toggleHudPlacement"')
-		table.insert(lines, '      ' .. btnStyle(hudPlacementMode and "active" or "settingsItem"))
-		table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
-		table.insert(lines, '      tooltip="Choose a position for the HUD"')
-		table.insert(lines, '      >' .. (hudPlacementMode and "Cancel" or "Place HUD") .. '</Button>')
-		-- Toggle HUD draggable
-		table.insert(lines, '    <Button id="tc_hud_dragToggleBtn"')
-		table.insert(lines, '      onClick="' .. g .. '/btn_toggleHudDraggable"')
-		table.insert(lines, '      ' .. btnStyle(hudDraggable and "toggleOn" or "settingsItem"))
-		table.insert(lines, '      fontSize="13" preferredWidth="112" preferredHeight="36"')
-		table.insert(lines, '      tooltip="Allow HUD to be dragged to a new position"')
-		table.insert(lines, '      >' .. (hudDraggable and "HUD Drag: ON" or "HUD Drag: OFF") .. '</Button>')
+	    local heStyle = historyEditMode and "danger" or "settingsItem"
+	    table.insert(lines, '    <Button id="tc_hud_editHistoryBtn" onClick="' .. g .. '/btn_toggleHistoryEdit"')
+	    table.insert(lines, '      ' .. btnStyle(heStyle))
+	    table.insert(lines, '      preferredWidth="112" preferredHeight="28"')
+	    table.insert(lines, '      tooltip="Toggle delete mode on history slots">')
+	    table.insert(lines, '      <Text id="tc_hud_editHistoryBtn_text" text="' .. (historyEditMode and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL) .. '" color="' .. BTN_STYLE[heStyle].textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="7" resizeTextMaxSize="12" alignment="MiddleCenter" /></Button>')
 		-- Default scale adjust
-		table.insert(lines, '    <HorizontalLayout spacing="2" childAlignment="MiddleCenter">')
+		-- Stepper layout: label on the left (wraps to 2 lines), [–][+] side by side on the right
+		table.insert(lines, '    <HorizontalLayout spacing="2" childAlignment="MiddleCenter" preferredHeight="28">')
+		table.insert(lines, '      <Text id="tc_hud_defaultScaleLabel" text="Default Scale: ' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="10" alignment="MiddleLeft" preferredWidth="52" preferredHeight="28" />')
 		table.insert(lines, '      <Button onClick="' .. g .. '/btn_defaultScaleDown"')
 		table.insert(lines, '        ' .. btnStyle("settingsItem"))
 		table.insert(lines, '        tooltip="Decrease default spawn scale"')
-		table.insert(lines, '        fontSize="16" preferredWidth="30" preferredHeight="36">–</Button>')
-		table.insert(lines, '      <Text id="tc_hud_defaultScaleLabel" text="' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" fontSize="12" alignment="MiddleCenter" preferredWidth="46" preferredHeight="36" />')
+		table.insert(lines, '        fontSize="16" preferredWidth="28" preferredHeight="28">–</Button>')
 		table.insert(lines, '      <Button onClick="' .. g .. '/btn_defaultScaleUp"')
 		table.insert(lines, '        ' .. btnStyle("settingsItem"))
 		table.insert(lines, '        tooltip="Increase default spawn scale"')
-		table.insert(lines, '        fontSize="16" preferredWidth="30" preferredHeight="36">+</Button>')
+		table.insert(lines, '        fontSize="16" preferredWidth="28" preferredHeight="28">+</Button>')
 		table.insert(lines, '    </HorizontalLayout>')
-		
+	    -- Clear History: last, only while Edit History is live; two-click confirm (see btn_clearHistory)
+	    table.insert(lines, '    <Button id="tc_hud_clearHistoryBtn" onClick="' .. g .. '/btn_clearHistory"')
+	    table.insert(lines, '      ' .. btnStyle(CLEAR_HISTORY_STYLE))
+	    table.insert(lines, '      preferredWidth="112" preferredHeight="28"')
+	    table.insert(lines, '      active="' .. (historyEditMode and "True" or "False") .. '"')
+	    table.insert(lines, '      tooltip="Clear all token history and reset template (click twice to confirm)">')
+	    table.insert(lines, '      <Text id="tc_hud_clearHistoryBtn_text" text="' .. HUD_CLEAR_LABEL .. '" color="' .. BTN_STYLE[CLEAR_HISTORY_STYLE].textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="7" resizeTextMaxSize="12" alignment="MiddleCenter" /></Button>')
 	    table.insert(lines, '  </VerticalLayout>')
 	    table.insert(lines, '</Panel><!--tc_hud_settingsPanel-->') -- end tc_hud_settingsPanel
 
@@ -1809,10 +1861,10 @@
 	    table.insert(lines, '<Button id="tc_hud_restore_tokens"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-190 2"')
+	    table.insert(lines, '  offsetXY="-164 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_restoreTokens"')
-	    table.insert(lines, '  ' .. btnStyle("settingsItem"))
+	    table.insert(lines, '  ' .. btnStyle("debug"))
 	    table.insert(lines, '  fontSize="10"')
 	    table.insert(lines, '  tooltip="Restore tokens after save/load if any are missing"')
 	    table.insert(lines, '  >↺</Button>')
@@ -1821,26 +1873,38 @@
 	    table.insert(lines, '<Button id="tc_hud_find_tokens"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-220 2"')
+	    table.insert(lines, '  offsetXY="-194 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_findTokens"')
-	    table.insert(lines, '  ' .. btnStyle("settingsItem"))
+	    table.insert(lines, '  ' .. btnStyle("debug"))
 	    table.insert(lines, '  fontSize="10"')
 	    table.insert(lines, '  tooltip="Find Tokens: adopt tokens left behind by a deleted or old Token Applier"')
 	    table.insert(lines, '  >F</Button>')
+
+	    -- ── Debug IDs button (prints the hover-token table to the console) — in the slot the HUD button used ──
+	    table.insert(lines, '<Button id="tc_hud_debug_ids"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter"')
+	    table.insert(lines, '  offsetXY="-134 2"')
+	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_debug"')
+	    table.insert(lines, '  ' .. btnStyle("debug"))
+	    table.insert(lines, '  fontSize="10"')
+	    table.insert(lines, '  tooltip="Debug IDs: print the hover-token table to the console"')
+	    table.insert(lines, '  >ID</Button>')
 
 	    -- ── Set Template button visibility toggle ──
 	    table.insert(lines, '<Button id="tc_hud_templateVis"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-50 190"')
+	    table.insert(lines, '  offsetXY="-97 190"')	-- left edge lines up with Add Token's left edge (x -112)
 	    table.insert(lines, '  width="30" height="30"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleSetTemplate"')
-	    table.insert(lines, '  ' .. btnStyle(hideSetTemplate and "danger" or "settingsItem"))
+	    table.insert(lines, '  ' .. btnStyle(hideSetTemplate and "danger" or "toggleOn"))
 	    table.insert(lines, '  fontSize="11"')
-	    table.insert(lines, '  tooltip="Show or hide the Set Template button"')
-	    local tvStyle = BTN_STYLE[hideSetTemplate and "danger" or "settingsItem"]
-		table.insert(lines, '  ><Text text="' .. (hideSetTemplate and "O" or "I") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '  tooltip="Token Creation: show or hide the Set Template button (O = hidden, I = visible)"')
+	    local tvStyle = BTN_STYLE[hideSetTemplate and "danger" or "toggleOn"]
+		table.insert(lines, '  ><Text id="tc_hud_templateVis_text" text="' .. (hideSetTemplate and "O" or "I") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
 	    
 
@@ -2004,7 +2068,7 @@
 				table.insert(lines, '    width="60" height="60"')
 				table.insert(lines, '    fontSize="30"')
 				table.insert(lines, '    tooltip="Move HUD here">')
-				table.insert(lines, '    <Text text="+" color="#FFFFFF" fontSize="30" width="60" height="60" alignment="MiddleCenter" /></Button>')
+				table.insert(lines, '    <Text text="+" color="' .. BTN_STYLE.hudPosition.textColor .. '" fontSize="30" width="60" height="60" alignment="MiddleCenter" /></Button>')
 			end
 		end
 
@@ -2031,11 +2095,20 @@
 			-- Wrap in a root panel and write the whole thing fresh
 			-- No string surgery — always a clean write
 			UI.setXml('<Panel width="1920" height="1080" color="#00000000">\n' .. hudXml .. '\n</Panel>')
-			if not hudVisible then
+			if not hudEnabled then
+				-- HUD switched off (from the OUI): nothing on screen, not even the restore button
+				UI.hide("tc_hud_root")
+				UI.hide("tc_hud_sizeWarning")
+				UI.hide("tc_hud_restore")
+			elseif not hudVisible then
 				UI.hide("tc_hud_root")
 				UI.hide("tc_hud_sizeWarning")
 				UI.show("tc_hud_restore")
 			end
+			-- The fresh HUD starts with the dynamic panel closed; clear the flags so the
+			-- selection loop re-opens it on its next tick if a model with tokens is selected
+			dynPanelVisible  = false
+			lastSelectedGUID = nil
 		end, 0.1)
 	end
 
@@ -2305,9 +2378,7 @@
 	    if not ok or type(data) ~= "table" then return end
 	    unstampData(data)
 
-	    local BLANK_IMAGE = "https://steamusercontent-a.akamaihd.net/ugc/2521536445208860998/E4C9AE9685105F12A3D4D3DC534616786D5D7666/"
-	    local imageURL = extractImageURL(data)
-	    local hasUsefulImage = imageURL and imageURL ~= "" and imageURL ~= BLANK_IMAGE
+	    local hasUsefulImage = usefulImageURL(data) ~= nil
 	    if hasUsefulImage then
 	        if previewGUID then
 	            local existing = getObjectFromGUID(previewGUID)
@@ -2433,19 +2504,15 @@
 	-- Holds the colour of the player who armed it, until confirmed or REMOVE_CONFIRM_TIME runs out.
 	local clearConfirm = nil   -- { color = playerColor } while waiting for the second click
 
-	-- Switches the Clear History buttons between normal and armed "Sure?" look
-	-- (OUI gets colour + text; the HUD button only changes its text until the HUD pass)
+	-- Switches both Clear History buttons (OUI + HUD) between normal and armed "Sure?" look
 	local function setClearHistoryLook(text, hudText, styleName)
-		local s = BTN_STYLE[styleName]
-		self.UI.setAttribute("clearHistoryBtn",      "colors", s.colors)
-		self.UI.setAttribute("clearHistoryBtn_text", "text",   text)
-		self.UI.setAttribute("clearHistoryBtn_text", "color",  s.textColor)
-		UI.setAttribute("tc_hud_clearHistoryBtn",    "text",   hudText)
+		setButtonLook(self.UI, "clearHistoryBtn", text, styleName)
+		setHudButtonLook("tc_hud_clearHistoryBtn", hudText, styleName)
 	end
 
 	local function resetClearConfirm()
 		clearConfirm = nil
-		setClearHistoryLook(CLEAR_HISTORY_LABEL, "X Clear All History", CLEAR_HISTORY_STYLE)
+		setClearHistoryLook(CLEAR_HISTORY_LABEL, HUD_CLEAR_LABEL, CLEAR_HISTORY_STYLE)
 	end
 
 	function btn_clearHistory(player, _)
@@ -3253,6 +3320,22 @@
 	        for i, entry in ipairs(tokenHistory) do
 	            print(string.format("  [%d] %s  img:%s", i, entry.name,
 	                (entry.imageURL and entry.imageURL ~= "") and "yes" or "no"))
+	            -- Image investigation: read straight from the saved template data
+	            -- (entry.imageURL may have been blanked by the name-only rule)
+	            local ok, data = pcall(JSON.decode, entry.json or "")
+	            if ok and type(data) == "table" then
+	                local url  = extractImageURL(data) or ""
+	                local c    = type(data.ColorDiffuse) == "table" and data.ColorDiffuse or {}
+	                local tint = string.format("r%.2f g%.2f b%.2f", c.r or 1, c.g or 1, c.b or 1)
+	                print(string.format("      type:%s  nameOnly:%s  tint:%s", tostring(data.Name), tostring(entry.nameOnly), tint))
+	                local blank = url:find(BLANK_IMAGE_ID, 1, true) and "  (BLANK placeholder)" or ""
+	                print("      image: " .. (url ~= "" and url or "(none)") .. blank)
+	                -- Where else the visible artwork might come from (tool-built tokens)
+	                local decals = type(data.AttachedDecals) == "table" and #data.AttachedDecals or 0
+	                local hasLua = type(data.LuaScript) == "string" and data.LuaScript ~= ""
+	                local hasXml = type(data.XmlUI) == "string" and data.XmlUI ~= ""
+	                print(string.format("      decals:%d  script:%s  objectUI:%s", decals, hasLua and "yes" or "no", hasXml and "yes" or "no"))
+	            end
 	        end
 	    end
 		if templateJSON then
