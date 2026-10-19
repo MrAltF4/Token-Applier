@@ -7,6 +7,7 @@ luac.out
 *.tar.gz
 
 Reference_script/
+steam workshop patch notes/
 
 # OS junk
 .DS_Store
