@@ -74,10 +74,9 @@
 	local heldModels            = {}
 	local settingsOpen          = false
 	local hudVisible            = true
-	local hudEnabled            = true
 	local dynPanelVisible       = false  -- tracks whether dynamic panel is currently shown
 	local historyEditMode 		= false
-	local templateCache     	= { label = "Set Template\n(none)", imageURL = "", name = "" }
+	local templateCache     	= { label = "Set Template\n(none)", imageURL = "", name = "", byteSize = 0 }   -- byteSize needed: a brand-new object has no saved state to fill it
 	local hideSetTemplate 		= true
 	local dynHideDelay 			= false
 	local templateIsFlippable 	= false
@@ -100,6 +99,7 @@
 	local imageCheckPending 	= {}     -- [imageURL] = true while its download/check is in flight (not saved)
 	local historyPage 			= 0      -- which page of history the 8 slots show (0 = newest)
 	local uiOpaque 				= false  -- Opaque mode: all OUI + HUD backgrounds fully solid (saved)
+	local hudOff 				= false  -- HUD: OFF = never touch the shared screen UI at all, OUI only (saved)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -463,6 +463,7 @@
 				showTemplatePreview = showTemplatePreview,
 				imageCheck          = imageCheck,
 				uiOpaque            = uiOpaque,
+				hudOff              = hudOff,
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -500,6 +501,7 @@
 		if type(data.showTemplatePreview) == "boolean" then showTemplatePreview = data.showTemplatePreview end
 		if type(data.imageCheck) == "table" then imageCheck = data.imageCheck end   -- before history prep, which reads it
 		if type(data.uiOpaque) == "boolean" then uiOpaque = data.uiOpaque end
+		if type(data.hudOff) == "boolean" then hudOff = data.hudOff end
 		-- Upgrade history from older saves (adds size info, name-only display)
 		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
@@ -687,7 +689,7 @@
 	local function refreshSizeWarning()
 		local sc = templateJSON and sizeClass(templateCache.byteSize)
 		-- HUD banner stays hidden while the HUD itself is minimised or switched off
-		local hudShow = sc and hudVisible and hudEnabled
+		local hudShow = sc and hudVisible and not hudOff
 		self.UI.setAttribute("sizeWarningPanel",  "active", sc and "True" or "False")
 		UI.setAttribute("TokenApplier_hud_sizeWarning",     "active", hudShow and "True" or "False")
 		if sc then
@@ -1000,41 +1002,16 @@
 		end
 	end
 
+	-- HUD: ON / OFF (1.4). OFF = Token Applier stops touching the shared screen UI entirely, for
+	-- tables whose own HUD clashes with it; the object's own UI and right-click menu keep working.
+	-- Saved with the object, so a table can ship its TA with the HUD off.
+	-- Turning it back on is only possible from the OUI (the HUD is gone).
 	function btn_toggleHUD(_, _)
-		hudEnabled = not hudEnabled
-		if hudEnabled then
-			hudVisible = true
-			UI.show("TokenApplier_hud_root")
-			UI.show("TokenApplier_hud_core")
-			UI.show("TokenApplier_hud_minimize")
-			UI.show("TokenApplier_hud_settings")
-			if not hideSetTemplate then UI.show("TokenApplier_hud_setTemplate") end
-			UI.hide("TokenApplier_hud_restore")
-			refreshSizeWarning()   -- bring the size banner back if the template needs it
-		else
-			UI.hide("TokenApplier_hud_core")
-			UI.hide("TokenApplier_hud_minimize")
-			UI.hide("TokenApplier_hud_settings")
-			UI.hide("TokenApplier_hud_setTemplate")
-			UI.hide("TokenApplier_hud_settingsPanel")
-			UI.hide("TokenApplier_hud_off")
-			UI.hide("TokenApplier_hud_restore_tokens")
-			UI.hide("TokenApplier_hud_find_tokens")
-			UI.hide("TokenApplier_hud_debug_ids")
-			UI.hide("TokenApplier_hud_placeBtn")
-			UI.hide("TokenApplier_hud_dragToggleBtn")
-			UI.hide("TokenApplier_hud_opacityBtn")
-			UI.hide("TokenApplier_hud_templateVis")
-			UI.hide("TokenApplier_hud_restore")
-			UI.hide("TokenApplier_hud_root")
-			UI.hide("TokenApplier_hud_dynPanel")
-			UI.hide("TokenApplier_hud_sizeWarning")
-			UI.hide("TokenApplier_hud_deleteOverlayPanel")
-			settingsOpen = false
-		end
-		rebuildXML()
-		setHudButtonLook("TokenApplier_hud_off", hudEnabled and "HUD" or "OFF", hudEnabled and "toggleOn" or "danger")
-		rebuildHUD()   -- recolouring in place doesn't stick on HUD buttons (TTS quirk); a rebuild draws them fresh
+		hudOff = not hudOff
+		if not hudOff then hudVisible = true end   -- come back open, not minimised
+		saveState()
+		rebuildXML()   -- redraw the OUI button
+		rebuildHUD()   -- OFF: one last write that takes our HUD out; ON: puts it back
 	end
 
 	function hud_toggleSettings(player, _, _)
@@ -1658,13 +1635,13 @@
 		table.insert(lines, '  color="' .. op("#484716F2") .. '">')
 		-- [ HUD: ON (290) ][ Opaque (146) ] — 290 + 4 gap + 146 = 440 (panel 448 − 8 padding)
 		table.insert(lines, '  <HorizontalLayout spacing="4" padding="4 4 4 4" childAlignment="MiddleCenter">')
-		local hStyle = hudEnabled and "toggleOn" or "danger"
+		local hStyle = hudOff and "danger" or "toggleOn"
 		table.insert(lines, '    <Button id="hudToggleBtn"')
 		table.insert(lines, '      onClick="btn_toggleHUD"')
-		table.insert(lines, '      tooltip="Show or hide the on-screen HUD"')
+		table.insert(lines, '      tooltip="HUD: OFF removes the on-screen HUD completely, for tables whose own HUD clashes with it. Saved with this object."')
 		table.insert(lines, '      ' .. btnStyle(hStyle))
 		table.insert(lines, '      fontSize="22" preferredWidth="290" preferredHeight="50"')
-		table.insert(lines, '      >' .. (hudEnabled and "HUD: ON" or "HUD: OFF") .. '</Button>')
+		table.insert(lines, '      ><Text text="' .. (hudOff and "HUD: OFF" or "HUD: ON") .. '" color="' .. BTN_STYLE[hStyle].textColor .. '" fontSize="22" /></Button>')
 		local oStyle = uiOpaque and "toggleOn" or "danger"
 		table.insert(lines, '    <Button id="opacityToggleBtn"')
 		table.insert(lines, '      onClick="btn_toggleOpacity"')
@@ -2040,8 +2017,8 @@
 	            .. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle(style) .. ' tooltip="' .. tooltip .. '">'
 	            .. '<Text id="' .. id .. '_text" text="' .. label .. '" color="' .. s.textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="9" alignment="MiddleCenter" /></Button>'
 	    end
-	    table.insert(lines, hudRowBtn("TokenApplier_hud_off", "btn_toggleHUD", "Toggle HUD on/off",
-	        hudEnabled and "toggleOn" or "danger", hudEnabled and "HUD" or "OFF", -238.5))
+	    table.insert(lines, hudRowBtn("TokenApplier_hud_off", "btn_toggleHUD", "Turn the HUD off (turn it back on from the Token Applier's settings)",
+	        "toggleOn", "HUD", -238.5))   -- only ever drawn while the HUD is on
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_placeBtn", "btn_toggleHudPlacement", "Place HUD: choose a fixed position for the HUD",
 	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -207.5))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_dragToggleBtn", "btn_toggleHudDraggable", "HUD Drag: allow the HUD to be dragged anywhere on screen",
@@ -2347,39 +2324,175 @@
 	    return table.concat(lines, "\n")
 	end
 
-	local function stripBetween(str, startTag, endTag)
-		local s = str:find(startTag, 1, true)
-		if not s then return str end
-		local e = str:find(endTag, s, true)
-		if not e then return str end
-		return str:sub(1, s - 1) .. str:sub(e + #endTag)
+	-- ── Sharing the screen UI with other mods (1.4) ──
+	-- The Global (screen) UI is shared by the table and every mod on it, so we never replace it.
+	-- Each rebuild: read what's there, drop only OUR old pieces (ids starting HUD_PREFIX),
+	-- turn the rest back into XML, add our fresh HUD on the end, and write it all back.
+	-- getXmlTable returns the LIVE values (tested on LCT), so other mods keep their current state.
+	local HUD_PREFIX  = "TokenApplier_hud"
+	local HUD_ROOT_ID = "TokenApplier_hud_root"
+
+	-- Is our HUD on the screen UI right now? (getAttribute on a missing id returns nil, no error)
+	local function hudIsOnScreen()
+		return UI.getAttribute(HUD_ROOT_ID, "id") ~= nil
+	end
+
+	local function isOurElement(el)
+		local id = el.attributes and el.attributes.id
+		return type(id) == "string" and id:sub(1, #HUD_PREFIX) == HUD_PREFIX
+	end
+
+	-- The same list with every TA element removed, at any depth
+	local function withoutOurElements(elements)
+		local kept = {}
+		for _, el in ipairs(elements or {}) do
+			if not isOurElement(el) then
+				el.children = withoutOurElements(el.children)
+				table.insert(kept, el)
+			end
+		end
+		return kept
+	end
+
+	local function xmlEscape(s)
+		return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"))
+	end
+
+	-- Another mod's <Defaults> block applies to EVERY element in the shared screen UI, ours too
+	-- (LCT's makes all Buttons and Texts bold, and Texts size 100 / black). So any of our Buttons
+	-- and Texts that don't set these themselves get TTS's normal values written in explicitly.
+	local DEFAULTS_GUARD = { fontStyle = "Normal", fontSize = "14" }
+	local function guardAgainstOtherDefaults(xml)
+		return (xml:gsub("<(%a+)([^>]*)>", function(tag, attrs)
+			if tag ~= "Button" and tag ~= "Text" then return nil end   -- nil = leave as it is
+			local extra = ""
+			for name, value in pairs(DEFAULTS_GUARD) do
+				if not attrs:find("%s" .. name .. '="') then
+					extra = extra .. " " .. name .. '="' .. value .. '"'
+				end
+			end
+			return "<" .. tag .. extra .. attrs .. ">"
+		end))
+	end
+
+	-- Table form (from UI.getXmlTable) back into XML text, added to `out`
+	local function elementsToXml(elements, out)
+		for _, el in ipairs(elements or {}) do
+			local open = { "<" .. el.tag }
+			for name, value in pairs(el.attributes or {}) do
+				table.insert(open, ' ' .. name .. '="' .. xmlEscape(value) .. '"')
+			end
+			table.insert(out, table.concat(open) .. ">")
+			if el.value and el.value ~= "" then table.insert(out, xmlEscape(el.value)) end
+			elementsToXml(el.children, out)
+			table.insert(out, "</" .. el.tag .. ">")
+		end
+		return out
+	end
+
+	-- HUD debug report (1.4 testing on LCT): what we read before the FIRST rebuild of this load,
+	-- and what's on screen once our write lands. Switch HUD_DEBUG to true to turn it back on.
+	local HUD_DEBUG = false
+	local debugReportDone = false
+	local function attrsText(el)
+		local parts = {}
+		for name, value in pairs(el.attributes or {}) do table.insert(parts, name .. "=" .. tostring(value)) end
+		table.sort(parts)
+		return table.concat(parts, "  ")
+	end
+	local function debugFind(elements, id)
+		for _, el in ipairs(elements or {}) do
+			if el.attributes and el.attributes.id == id then return el end
+			local found = debugFind(el.children, id)
+			if found then return found end
+		end
+	end
+	local function debugReport(ui, stage)
+		local main = debugFind(ui, "main")
+		print("[HUD 1.4 debug] " .. stage .. "  main: " .. (main and attrsText(main) or "NOT FOUND"))
+		print("[HUD 1.4 debug]   main getAttribute active=" .. tostring(UI.getAttribute("main", "active")))
+		for _, p in ipairs(Player.getPlayers()) do
+			print("[HUD 1.4 debug]   player " .. p.steam_name .. "  colour=" .. tostring(p.color) .. "  team=" .. tostring(p.team))
+		end
+		if stage ~= "BEFORE write" then return end
+		for _, el in ipairs(ui) do
+			if el.tag == "Defaults" then
+				for _, d in ipairs(el.children or {}) do
+					print("[HUD 1.4 debug]   Defaults <" .. tostring(d.tag) .. ">  " .. attrsText(d))
+				end
+			end
+		end
 	end
 
 	rebuildHUD = function()
 		if hudRebuildPending then return end
 		hudRebuildPending = true
 		Wait.time(function()
-			hudRebuildPending = false
-			local guid   = self.getGUID()
-			local hudXml = buildHUDXml(guid)
-			-- Wrap in a root panel and write the whole thing fresh
-			-- No string surgery — always a clean write
-			UI.setXml('<Panel width="1920" height="1080" color="#00000000">\n' .. hudXml .. '\n</Panel>')
-			if not hudEnabled then
-				-- HUD switched off (from the OUI): nothing on screen, not even the restore button
-				UI.hide("TokenApplier_hud_root")
-				UI.hide("TokenApplier_hud_sizeWarning")
-				UI.hide("TokenApplier_hud_restore")
-			elseif not hudVisible then
-				UI.hide("TokenApplier_hud_root")
-				UI.hide("TokenApplier_hud_sizeWarning")
-				UI.show("TokenApplier_hud_restore")
-			end
-			-- The fresh HUD starts with the dynamic panel closed; clear the flags so the
-			-- selection loop re-opens it on its next tick if a model with tokens is selected
-			dynPanelVisible  = false
-			lastSelectedGUID = nil
+			-- Wait out any UI write still being applied (ours or another mod's): until it lands,
+			-- getXmlTable returns the OLD UI and we'd write stale pieces back
+			Wait.condition(function()
+				hudRebuildPending = false
+				-- HUD: OFF: don't touch the screen UI at all. The one exception is when our HUD
+				-- is still on it (the setting was just switched on): one last write takes it out.
+				if hudOff and not hudIsOnScreen() then return end
+				local guid   = self.getGUID()
+				local others = withoutOurElements(UI.getXmlTable())
+				local ours   = hudOff and "" or guardAgainstOtherDefaults(buildHUDXml(guid))
+				local xml    = table.concat(elementsToXml(others, {}), "\n") .. "\n" .. ours
+				if HUD_DEBUG then print("[HUD 1.4 test] kept " .. #others .. " other top-level UI element(s)") end
+				if HUD_DEBUG and not debugReportDone then
+					debugReportDone = true
+					debugReport(others, "BEFORE write")
+					Wait.time(function()
+						Wait.condition(function() debugReport(UI.getXmlTable(), "AFTER write (1s)") end,
+							function() return not UI.loading end)
+					end, 1)
+				end
+				UI.setXml(xml)
+				if hudOff then return end
+				if not hudVisible then
+					UI.hide("TokenApplier_hud_root")
+					UI.hide("TokenApplier_hud_sizeWarning")
+					UI.show("TokenApplier_hud_restore")
+				end
+				-- The fresh HUD starts with the dynamic panel closed; clear the flags so the
+				-- selection loop re-opens it on its next tick if a model with tokens is selected
+				dynPanelVisible  = false
+				lastSelectedGUID = nil
+			end, function() return not UI.loading end)
 		end, 0.1)
+	end
+
+	-- ── HUD self-repair (1.4) ──
+	-- If another script rewrites the screen UI without our HUD in it, put it back (the merge keeps theirs).
+	-- A cheap check every HUD_WATCH_INTERVAL seconds. If something wipes us again and again
+	-- (HUD_REPAIR_LIMIT times inside HUD_REPAIR_WINDOW seconds), stop for this session rather than
+	-- fight it: HUD: OFF (saved with the object) is the fix for that table.
+	local HUD_WATCH_INTERVAL = 3
+	local HUD_REPAIR_LIMIT   = 3
+	local HUD_REPAIR_WINDOW  = 60
+	local hudRepairTimes     = {}   -- os.time() of each recent repair
+
+	local function startHudWatch()
+		local watchId
+		watchId = Wait.time(function()
+			if applierDestroyed then Wait.stop(watchId) return end
+			if hudOff or hudRebuildPending or UI.loading or hudIsOnScreen() then return end
+
+			local now, recent = os.time(), {}
+			for _, t in ipairs(hudRepairTimes) do
+				if now - t < HUD_REPAIR_WINDOW then table.insert(recent, t) end
+			end
+			hudRepairTimes = recent
+			if #hudRepairTimes >= HUD_REPAIR_LIMIT then
+				if HUD_DEBUG then print("[HUD 1.4 test] HUD keeps being removed by another script; self-repair stopped") end
+				Wait.stop(watchId)
+				return
+			end
+			table.insert(hudRepairTimes, now)
+			if HUD_DEBUG then print("[HUD 1.4 test] HUD missing from the screen UI; putting it back") end
+			rebuildHUD()
+		end, HUD_WATCH_INTERVAL, -1)
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -2867,6 +2980,7 @@
 
 	    startFollowLoop()
 	    startSelectionLoop()
+	    startHudWatch()
 	    restorePreview()
 		for _, colour in ipairs({"Red","Blue","White","Green","Yellow","Orange","Purple","Pink","Teal"}) do
 			local p = Player[colour]
