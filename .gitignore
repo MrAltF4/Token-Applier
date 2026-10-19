@@ -6,6 +6,8 @@ luac.out
 *.zip
 *.tar.gz
 
+Reference_script/
+
 # OS junk
 .DS_Store
 Thumbs.db
