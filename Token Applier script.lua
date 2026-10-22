@@ -683,6 +683,16 @@
 		}
 	end
 
+	-- Makes text safe to put inside an XML attribute (names can contain " & < >)
+	local function xmlEscape(s)
+		return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"))
+	end
+
+	-- The HUD Set Template button's label (the current template's name, or "No Template")
+	local function hudTemplateLabel()
+		return templateJSON and shortName(stripBBCode(templateCache.name), 20, 2) or "No Template"
+	end
+
 	-- Shows/hides the "Large / Very large object" banner on BOTH the OUI and the HUD to
 	-- match the current template (colour + text too). Every path that changes the
 	-- template calls this, so the two banners can't get out of step.
@@ -764,10 +774,6 @@
 		refreshHistorySlots()
 		refreshPreviewIndicator()
 		refreshSizeWarning()
-		-- Update HUD Set Template button
-		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
-		local tcLabel = templateJSON and tcShort or "No Template"
-		UI.setAttribute("TokenApplier_hud_setTemplate", "text", tcLabel)
 	end
 -- ──────────────────────────────────────────────────────────────
 --  HISTORY EDIT OVERLAY
@@ -968,36 +974,18 @@
 	    printToColor("Removed all tokens from " .. targetName, playerColor, { 1, 0.5, 0.5 })
 	end
 
+	-- Minimise / restore. Only the outer root is hidden: everything inside it keeps its own
+	-- state, so settings (kept in sync with the OUI), edit mode and the dynamic panel come
+	-- back exactly as they were. Hiding the children one by one cut the Token History panel's
+	-- Shrink animation short, which left it half-alive and popping back on restore.
 	function hud_toggleVisible(player, _, _)
 		hudVisible = not hudVisible
 		if hudVisible then
 			UI.show("TokenApplier_hud_root")
-			UI.show("TokenApplier_hud_core")
-			UI.show("TokenApplier_hud_minimize")
-			UI.show("TokenApplier_hud_settings")
-			if not hideSetTemplate then UI.show("TokenApplier_hud_setTemplate") end
 			UI.hide("TokenApplier_hud_restore")
 			refreshSizeWarning()   -- bring the size banner back if the template needs it
 		else
 			UI.hide("TokenApplier_hud_root")
-			UI.hide("TokenApplier_hud_core")
-			UI.hide("TokenApplier_hud_minimize")
-			UI.hide("TokenApplier_hud_settings")
-			UI.hide("TokenApplier_hud_setTemplate")
-			UI.hide("TokenApplier_hud_settingsPanel")
-			UI.hide("TokenApplier_hud_off")
-			UI.hide("TokenApplier_hud_restore_tokens")
-			UI.hide("TokenApplier_hud_find_tokens")
-			UI.hide("TokenApplier_hud_debug_ids")
-			UI.hide("TokenApplier_hud_placeBtn")
-			UI.hide("TokenApplier_hud_dragToggleBtn")
-			UI.hide("TokenApplier_hud_opacityBtn")
-			UI.hide("TokenApplier_hud_templateVis")
-			UI.hide("TokenApplier_hud_root")
-			UI.hide("TokenApplier_hud_dynPanel")
-			UI.hide("TokenApplier_hud_sizeWarning")
-			UI.hide("TokenApplier_hud_deleteOverlayPanel")
-			settingsOpen = false
 			UI.show("TokenApplier_hud_restore")
 		end
 	end
@@ -1074,7 +1062,7 @@
 			end
 		end
 		hudPlacementMode = false
-		settingsOpen = false  -- close settings so it doesn't linger
+		if settingsOpen then btn_toggleSettings() end  -- close settings (OUI too) so it doesn't linger
 
 		-- Hide everything before the rebuild fires
 		UI.hide("TokenApplier_hud_root")
@@ -1148,9 +1136,11 @@
 			UI.hide("TokenApplier_hud_opacityBtn")
 			UI.hide("TokenApplier_hud_templateVis")
 		end
-		-- Update settings button highlight
-		self.UI.setAttribute("settingsBtn", "colors",    BTN_STYLE[settingsOpen and "active" or "settings"].colors)
-		self.UI.setAttribute("settingsBtn", "textColor", BTN_STYLE[settingsOpen and "active" or "settings"].textColor)
+		-- Update settings button highlight (OUI and HUD; the HUD one stayed blue after closing)
+		local sStyle = BTN_STYLE[settingsOpen and "active" or "settings"]
+		self.UI.setAttribute("settingsBtn", "colors",    sStyle.colors)
+		self.UI.setAttribute("settingsBtn", "textColor", sStyle.textColor)
+		UI.setAttribute("TokenApplier_hud_settings", "colors", sStyle.colors)
 		-- (No setAttribute "active" on panels here: it skips the Grow/Shrink animation that show()/hide() play)
 	end
 	
@@ -2035,10 +2025,8 @@
 	    table.insert(lines, '  onClick="' .. g .. '/btn_setTemplate"')
 	    table.insert(lines, '  ' .. btnStyle("template"))
 	    table.insert(lines, '  fontSize="14"')
-	    table.insert(lines, '  tooltip="Set token template from selected object"')
-	    local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
-	    local tcLabel = templateJSON and tcShort or "No Template"
-	    table.insert(lines, '  >' .. tcLabel .. '</Button>')
+	    table.insert(lines, '  tooltip="Set token template from selected object">')
+	    table.insert(lines, '  <Text id="TokenApplier_hud_setTemplate_text" text="' .. xmlEscape(hudTemplateLabel()):gsub("\n", "&#10;") .. '" color="' .. BTN_STYLE.template.textColor .. '" fontSize="14" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="14" width="160" height="30" alignment="MiddleCenter" /></Button>')   -- best fit: 2-line names shrink to fit the 30px height instead of losing line 2
 		
 		-- ── Size warning ──
 		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large" or "⚠ Large object"
@@ -2354,10 +2342,6 @@
 		return kept
 	end
 
-	local function xmlEscape(s)
-		return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"))
-	end
-
 	-- Another mod's <Defaults> block applies to EVERY element in the shared screen UI, ours too
 	-- (LCT's makes all Buttons and Texts bold, and Texts size 100 / black). So any of our Buttons
 	-- and Texts that don't set these themselves get TTS's normal values written in explicitly.
@@ -2499,8 +2483,13 @@
 --  BUTTON LABEL HELPERS
 -- ──────────────────────────────────────────────────────────────
 
+	-- Updates the Set Template label on BOTH the OUI and the HUD. Every path that changes the
+	-- template calls this (set, drop, history pick, delete, clear), so the two can't drift.
+	-- The HUD label lives on a <Text> child: setting "text" on the Button itself made TTS
+	-- redraw it in its default black.
 	refreshTemplateButton = function()
 	    self.UI.setAttribute("setTemplateBtn_text", "text", templateCache.label)
+	    UI.setAttribute("TokenApplier_hud_setTemplate_text", "text", hudTemplateLabel())
 	end
 
 	-- refresh Preview indicator
@@ -2860,13 +2849,7 @@
 		refreshPreviewIndicator()
 		
 		refreshSizeWarning()
-		
-		-- Update HUD Set Template button
-		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
-		local tcLabel = templateJSON and tcShort or "No Template"
-		UI.setAttribute("TokenApplier_hud_setTemplate", "text", tcLabel)
-		refreshTemplateButton()
-		
+
 	    collisionCooldown = true
 	    Wait.time(function() collisionCooldown = false end, 2.0)
 
@@ -3051,12 +3034,7 @@
 	    refreshHistorySlots()
 		refreshPreviewIndicator()
 		refreshSizeWarning()
-		-- Update HUD Set Template button
-		local tcShort = shortName(stripBBCode(templateCache.name), 20, 2)
-		local tcLabel = templateJSON and tcShort or "No Template"
-		UI.setAttribute("TokenApplier_hud_setTemplate", "text", tcLabel)
-		refreshTemplateButton()
-		
+
 	    printToColor("Template set from: " .. name, playerColor, { 0.3, 1, 0.5 })
 	end
 
