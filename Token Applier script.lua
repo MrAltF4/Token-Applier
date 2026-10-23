@@ -1108,6 +1108,102 @@
 		refreshPreviewIndicator()
 		refreshSizeWarning()
 	end
+
+	-- ── Rename a history entry (#103): right-click a slot ──
+	-- A rename bar (HUD + object) opens over Add Token, filled with the current name: [name][Save][✕].
+	-- Save, Enter or clicking away keeps the new name; ✕ or right-clicking the same slot again cancels.
+	-- (Esc can't cancel: TTS uses it for its own menu.) The new name also goes into the stored template,
+	-- so tokens added from that slot afterwards carry it (tokens already placed keep theirs).
+	--
+	-- TTS QUIRK: pressing a button ends the text box's editing BEFORE that button's click arrives, so
+	-- "finished editing" can't save straight away or ✕ would be too late. It waits RENAME.delay seconds;
+	-- ✕ / right-click / Save in that time take over.
+	local RENAME = {
+		index   = nil,   -- tokenHistory index being renamed, or nil when the bar is closed
+		text    = "",    -- what's in the box right now (onValueChanged)
+		pending = nil,   -- the waiting save from "finished editing", if any
+		delay   = 0.5,
+	}
+
+	local function closeRename()
+		RENAME.index, RENAME.pending = nil, nil
+		self.UI.hide("renamePanel")
+		UI.hide("TokenApplier_hud_renamePanel")
+	end
+
+	local function openRename(slot)
+		local entry = tokenHistory[histIndex(slot)]
+		if not entry or historyEditMode then return end
+		-- Right-clicking the slot that's already being renamed closes the bar (cancel)
+		if RENAME.index == histIndex(slot) then closeRename() return end
+		RENAME.index, RENAME.pending = histIndex(slot), nil
+		local name = stripBBCode(entry.name or "")
+		RENAME.text = name
+		self.UI.setAttribute("renameInput", "text", name)
+		UI.setAttribute("TokenApplier_hud_renameInput", "text", name)
+		self.UI.show("renamePanel")
+		UI.show("TokenApplier_hud_renamePanel")
+	end
+
+	local function renameHistoryEntry(index, newName)
+		local entry = tokenHistory[index]
+		if not entry then return end
+		local ok, data = pcall(JSON.decode, entry.json)
+		if ok and type(data) == "table" then
+			data.Nickname = newName
+			local newJson = JSON.encode(data)
+			if templateJSON == entry.json then templateJSON = newJson end   -- keep it the active template
+			entry.json = newJson
+		end
+		entry.name = newName
+		prepareHistoryEntry(entry)
+		refreshTemplateCache()
+		saveState()
+		refreshTemplateButton()
+		refreshHistorySlots()
+		refreshPreviewIndicator()
+	end
+
+	-- A history slot was clicked: right-click (value "-2") renames, any other click picks the template
+	local function historyClick(slot, value)
+		if tostring(value) == "-2" then openRename(slot) else activateHistoryEntry(slot) end
+	end
+
+	-- Saves what's in the box (empty or unchanged = nothing to save) and closes the bar
+	local function applyRename()
+		local index = RENAME.index
+		if index and tokenHistory[index] then
+			local newName = tostring(RENAME.text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+			if newName ~= "" and newName ~= stripBBCode(tokenHistory[index].name or "") then
+				renameHistoryEntry(index, newName)
+			end
+		end
+		closeRename()
+	end
+
+	function btn_renameTyped(_, value, _)
+		RENAME.text = value or ""
+	end
+
+	-- Box finished editing (Enter or clicking away): save after RENAME.delay unless ✕/right-click/Save step in
+	function btn_renameHistory(_, value, _)
+		if not RENAME.index then return end
+		RENAME.text = value or RENAME.text
+		local ticket = {}
+		RENAME.pending = ticket
+		Wait.time(function()
+			if RENAME.pending == ticket then applyRename() end
+		end, RENAME.delay)
+	end
+
+	function btn_renameSave(_, _)
+		RENAME.pending = nil
+		applyRename()
+	end
+
+	function btn_renameCancel(_, _)
+		closeRename()
+	end
 -- ──────────────────────────────────────────────────────────────
 --  HISTORY EDIT OVERLAY
 -- ──────────────────────────────────────────────────────────────
@@ -1179,14 +1275,14 @@
 --  HISTORY BUTTON HANDLERS
 -- ──────────────────────────────────────────────────────────────
 
-	function btn_history_1(_, _) activateHistoryEntry(1) end
-	function btn_history_2(_, _) activateHistoryEntry(2) end
-	function btn_history_3(_, _) activateHistoryEntry(3) end
-	function btn_history_4(_, _) activateHistoryEntry(4) end
-	function btn_history_5(_, _) activateHistoryEntry(5) end
-	function btn_history_6(_, _) activateHistoryEntry(6) end
-	function btn_history_7(_, _) activateHistoryEntry(7) end
-	function btn_history_8(_, _) activateHistoryEntry(8) end
+	function btn_history_1(_, value) historyClick(1, value) end
+	function btn_history_2(_, value) historyClick(2, value) end
+	function btn_history_3(_, value) historyClick(3, value) end
+	function btn_history_4(_, value) historyClick(4, value) end
+	function btn_history_5(_, value) historyClick(5, value) end
+	function btn_history_6(_, value) historyClick(6, value) end
+	function btn_history_7(_, value) historyClick(7, value) end
+	function btn_history_8(_, value) historyClick(8, value) end
 
 	-- OUI DeleteHistory HANDLERS
 	function btn_deleteHistory_1(_, _) deleteHistoryEntry(1) end
@@ -1246,14 +1342,14 @@
 --  HUD HISTORY HANDLERS
 -- ──────────────────────────────────────────────────────────────
 
-	function hud_history_1(player, _, _) activateHistoryEntry(1) end
-	function hud_history_2(player, _, _) activateHistoryEntry(2) end
-	function hud_history_3(player, _, _) activateHistoryEntry(3) end
-	function hud_history_4(player, _, _) activateHistoryEntry(4) end
-	function hud_history_5(player, _, _) activateHistoryEntry(5) end
-	function hud_history_6(player, _, _) activateHistoryEntry(6) end
-	function hud_history_7(player, _, _) activateHistoryEntry(7) end
-	function hud_history_8(player, _, _) activateHistoryEntry(8) end
+	function hud_history_1(player, value, _) historyClick(1, value) end
+	function hud_history_2(player, value, _) historyClick(2, value) end
+	function hud_history_3(player, value, _) historyClick(3, value) end
+	function hud_history_4(player, value, _) historyClick(4, value) end
+	function hud_history_5(player, value, _) historyClick(5, value) end
+	function hud_history_6(player, value, _) historyClick(6, value) end
+	function hud_history_7(player, value, _) historyClick(7, value) end
+	function hud_history_8(player, value, _) historyClick(8, value) end
 
 -- ──────────────────────────────────────────────────────────────
 --  HUD ACTION HANDLERS
@@ -2170,6 +2266,22 @@
 	    table.insert(lines, '  fontSize="60"')
 	    table.insert(lines, '  >Add Token</Button>')
 
+		-- Rename bar (#103): along the BOTTOM of Add Token (448 wide, y -170..-250), like the HUD's, hidden until
+		-- a history slot is right-clicked. Rounded background like the HUD panels (Panels can't round).
+		table.insert(lines, '<Panel id="renamePanel" active="False" position="0 -210 -32" rotation="0 0 0" width="448" height="80" color="#00000000">')
+		table.insert(lines, '  ' .. roundedPanelBg(448, 80, op(SETTINGS_PANEL_COLOR)))
+		table.insert(lines, '  <HorizontalLayout spacing="8" padding="10 10 12 12" childAlignment="MiddleCenter" childForceExpandWidth="false">')
+		-- [name 262][Save 90][✕ 56] + 2 gaps of 8 = 424 (448 − 2 × 10 padding = 428)
+		table.insert(lines, '    <InputField id="renameInput" onEndEdit="btn_renameHistory" onValueChanged="btn_renameTyped" text=""'
+			.. ' characterLimit="40" fontSize="22" color="#FFFFFF" textColor="#10141E" placeholder="New name"'
+			.. ' tooltip="Rename this history slot: Enter or Save keeps it, ✕ cancels" preferredWidth="262" preferredHeight="56" />')
+		table.insert(lines, '    <Button onClick="btn_renameSave" ' .. btnStyle("settingsItem") .. ' fontSize="20" tooltip="Save the new name" preferredWidth="90" preferredHeight="56">'
+			.. '<Text text="Save" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="20" width="90" height="56" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '    <Button onClick="btn_renameCancel" ' .. btnStyle("dynRemove") .. ' fontSize="24" tooltip="Cancel (keep the old name)" preferredWidth="56" preferredHeight="56">'
+			.. '<Text text="✕" color="' .. BTN_STYLE.dynRemove.textColor .. '" fontSize="24" width="56" height="56" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  </HorizontalLayout>')
+		table.insert(lines, '</Panel>')
+
 		-- Set Template button
 	    table.insert(lines, '<Button id="setTemplateBtn"')
 		table.insert(lines, '  active="' .. (hideSetTemplate and "False" or "True") .. '"')
@@ -2451,6 +2563,22 @@
 		table.insert(lines, '  </VerticalLayout>')
 		
 		table.insert(lines, '</Panel><!--TokenApplier_hud_core-->') -- end TokenApplier_hud_core
+
+		-- Rename bar (#103): over Add Token (x -112.5..112.5, y 145..189), hidden until a history slot is
+		-- right-clicked. The box is 30 tall: an InputField keeps ~13px padding, so its text needs the room.
+		table.insert(lines, '<Panel id="TokenApplier_hud_renamePanel" active="False" rectAlignment="LowerCenter" offsetXY="0 145" width="225" height="44" color="#00000000">')
+		table.insert(lines, '  ' .. roundedPanelBg(225, 44, op(SETTINGS_PANEL_COLOR), CUSTOM.panelRimColor()))
+		table.insert(lines, '  <HorizontalLayout spacing="4" padding="6 6 7 7" childAlignment="MiddleCenter" childForceExpandWidth="false">')
+		-- [name 132][Save 45][✕ 28] + 2 gaps of 4 = 213 (225 − 2 × 6 padding)
+		table.insert(lines, '    <InputField id="TokenApplier_hud_renameInput" onEndEdit="' .. g .. '/btn_renameHistory" onValueChanged="' .. g .. '/btn_renameTyped" text=""'
+			.. ' characterLimit="40" fontSize="10" color="#FFFFFF" textColor="#10141E" placeholder="New name"'
+			.. ' tooltip="Rename this history slot: Enter or Save keeps it, ✕ cancels" preferredWidth="132" preferredHeight="30" />')
+		table.insert(lines, '    <Button onClick="' .. g .. '/btn_renameSave" ' .. btnStyle("settingsItem") .. ' fontSize="9" tooltip="Save the new name" preferredWidth="45" preferredHeight="30">'
+			.. '<Text text="Save" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="9" width="45" height="30" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '    <Button onClick="' .. g .. '/btn_renameCancel" ' .. btnStyle("dynRemove") .. ' fontSize="12" tooltip="Cancel (keep the old name)" preferredWidth="28" preferredHeight="30">'
+			.. '<Text text="✕" color="' .. BTN_STYLE.dynRemove.textColor .. '" fontSize="12" width="28" height="30" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  </HorizontalLayout>')
+		table.insert(lines, '</Panel><!--TokenApplier_hud_renamePanel-->')
 		
 		
 		-- ── HUD Delete overlay panel ──
