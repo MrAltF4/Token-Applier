@@ -39,12 +39,12 @@
 
 	}
 	local REMOVE_ALL_LABEL    = "X Remove All Tokens from Model"   -- plain X matches "X Clear History" (🗑 doesn't render in TTS)
-	local REMOVE_ALL_STYLE    = "caution"        -- normal state: yellow, "careful, this removes things"
+	local REMOVE_ALL_STYLE    = "cautionStrong"  -- normal state: same striking gold as Clear All History (both remove everything)
 	local REMOVE_ARMED_STYLE  = "hudRemove"      -- "Sure?" state: red, so the change pops
 	local CLEAR_HISTORY_LABEL = "X Clear All History"
-	local CLEAR_HISTORY_STYLE = "caution"        -- normal: yellow (only visible while Edit History is live)
+	local CLEAR_HISTORY_STYLE = "cautionStrong"  -- normal: striking gold (only visible while Edit History is live)
 	local EDIT_OFF_STYLE      = "settingsItem"   -- Edit History button: grey like the other settings
-	local EDIT_ON_STYLE       = "caution"        -- "Stop Editing History": yellow (#92; was red)
+	local EDIT_ON_STYLE       = "pressed"        -- "Stop Editing History": pressed in (it opened a mode), see setPressedLook
 	-- Settings groups (#90): grey, so standard settings don't draw the eye like yellow did
 	local SETTINGS_PANEL_COLOR = "#1C1F28F2"     -- background of the Token History / HUD groups
 	local SETTINGS_TITLE_COLOR = "#AFC1D8"       -- group titles ("Token History", "Token Creation")
@@ -53,8 +53,8 @@
 	local LINEUP = {
 		style = "dynMod",
 		-- (⨀ doesn't draw in TTS's font; ⊙ and ○ both do, ⊙ chosen as it reads as a symbol, not a letter)
-		hud   = { [true] = "⊙ Radial",  [false] = "— Line up" },    -- key = the model is currently in line-up mode
-		oui   = { [true] = "⊙\nRadial", [false] = "—\nLine up" },   -- OUI button is a 60px square: symbol on top
+		hud   = { [true] = "⊙ Radial Arrangement",  [false] = "— Line Up Arrangement" },    -- key = the model is currently in line-up mode
+		oui   = { [true] = "⊙\nRadial", [false] = "—\nLine up" },   -- OUI button is a 60px square: short label, symbol on top
 	}
 	-- Opaque toggle hover text, by current state (OUI + HUD); the toggle rebuilds both UIs, so it stays right
 	local OPAQUE_TOOLTIP = {
@@ -276,8 +276,31 @@
 			transition = "ColorTint",
 		},
 		-- Any toggle in its ON state
-		toggleOn = {
-			colors     = "#145214F2|#1E7A1EF2|#0E3A0EF2|#333333AA",
+		toggleOn = {   -- muted 1.4.3: same green hue, half the saturation (was #145214 / #1E7A1E / #0E3A0E: too eye-catching)
+			colors     = "#335233F2|#4C7A4CF2|#243A24F2|#333333AA",
+			textColor  = "#FFFFFF",
+			transition = "ColorTint",
+		},
+		-- Any toggle in its OFF state: "danger" red muted the same way (same hue, half the saturation).
+		-- Real warnings ("Sure? Click again", ✕ remove, delete overlay) keep the strong red.
+		toggleOff = {
+			colors     = "#2B1C1CF2|#5A3A3AF2|#1F1414F2|#333333AA",
+			textColor  = "#FFB0B0",
+			transition = "ColorTint",
+		},
+		-- "Pressed in": for buttons that OPEN something (a panel, a mode) rather than switch a feature on
+		-- (Customise, Stop Editing History). Darker, sunk body + dimmer text + a dark rim; the label is
+		-- also nudged 1px down (see setPressedLook). Click again and it pops back to settingsItem.
+		pressed = {   -- v2: brighter, thicker rim + clearer text (v1's dark rim got lost on a dark backdrop)
+			colors      = "#1C1F28F2|#272B37F2|#16181FF2|#333333AA",
+			textColor   = "#D0D6E2",
+			transition  = "ColorTint",
+			outline     = "#7A86A2",
+			outlineSize = "2 2",
+		},
+		-- Clear All History: a brighter, more striking gold than "caution" (it wipes everything)
+		cautionStrong = {
+			colors     = "#9A7D00F2|#B89600F2|#7A6300F2|#333333AA",
 			textColor  = "#FFFFFF",
 			transition = "ColorTint",
 		},
@@ -338,12 +361,12 @@
 
 	-- HUD ⚙ button styles (1.4.2 look test). The OUI ⚙ keeps "settings" / "active".
 	local HUD_SETTINGS_CLOSED_STYLE = "lookNeutral"
-	local HUD_SETTINGS_OPEN_STYLE   = "lookActive"
+	local HUD_SETTINGS_OPEN_STYLE   = "pressed"   -- pressed in while settings are open (it opens a panel)
 
 	local function btnStyle(name)
 	    local s = BTN_STYLE[name] or BTN_STYLE.ghost
 	    local look = ""
-	    if s.outline then look = ' outline="' .. s.outline .. '" outlineSize="' .. LOOK_OUTLINE_SIZE .. '"' end
+	    if s.outline then look = ' outline="' .. s.outline .. '" outlineSize="' .. (s.outlineSize or LOOK_OUTLINE_SIZE) .. '"' end
 	    if s.outline or s.round then look = look .. ' roundEdges="true"' end
 	    return 'colors="'     .. s.colors     .. '" '
 	        .. 'textColor="'  .. s.textColor  .. '" '
@@ -366,6 +389,14 @@
 
 	local function setHudButtonLook(id, text, styleName)
 	    setButtonLook(UI, id, text, styleName)
+	end
+
+	-- The parts of the "pressed" look that colours can't do, for a live switch (setButtonLook does the
+	-- colours): the dark rim, and the label nudged down. nudge = how far (HUD 1, OUI 2: it's drawn bigger).
+	local function setPressedExtras(ui, id, pressed, nudge)
+	    ui.setAttribute(id, "outline", pressed and BTN_STYLE.pressed.outline or "#00000000")
+	    ui.setAttribute(id, "outlineSize", BTN_STYLE.pressed.outlineSize)
+	    ui.setAttribute(id .. "_text", "offsetXY", pressed and ("0 " .. -nudge) or "0 0")
 	end
 
 -- ──────────────────────────────────────────────────────────────
@@ -412,17 +443,82 @@
 		open         = false,       -- customise panel showing (not saved, like settings)
 		selectColor  = "#15AFCC",   -- chosen selection colour (saved)
 		defaultColor = "#15AFCC",
-		presets = {                 -- one-click picks, rainbow order (cyan = default)
+		presets = {                 -- one-click picks, rainbow order then white (cyan = default); 12 = 2 HUD rows of 6
 			{ name = "Red",    hex = "#E53935" },
 			{ name = "Orange", hex = "#FB8C00" },
 			{ name = "Yellow", hex = "#FDD835" },
+			{ name = "Lime",   hex = "#9CCC2C" },
 			{ name = "Green",  hex = "#43A047" },
+			{ name = "Teal",   hex = "#00897B" },
 			{ name = "Cyan",   hex = "#15AFCC" },
 			{ name = "Blue",   hex = "#1E63D6" },
+			{ name = "Indigo", hex = "#3F51B5" },
 			{ name = "Purple", hex = "#8E24AA" },
 			{ name = "Pink",   hex = "#D81B60" },
+			{ name = "White",  hex = "#FFFFFF" },
+		},
+		hudPanelH = 116,            -- HUD customise panel height (its top = 240 + this)
+		-- Backgrounds (#100): a rounded backdrop behind each HUD group, filling the see-through gaps.
+		-- bg = index into bgLevels (saved). Its own setting: Opaque mode does NOT change it.
+		-- Every backdrop = its group's outermost content + bgMargin on all four sides, so the
+		-- groups' edges match (their lowest buttons all sit at y 2, so the bottoms line up).
+		bg       = 1,
+		bgMargin = 4,
+		bgRim    = "#4A5270",   -- light rim on dynamic buttons while a backdrop is on, so they lift off it
+		rimSize  = 1,           -- the rim's width (outlineSize); backdrops add it to their margin
+		panelRim = "#4A527080", -- panels get the same rim at half strength (they're not buttons)
+		bgLevels = {
+			{ label = "0%",   color = nil },           -- off: today's look
+			{ label = "50%",  color = "#1C1F2880" },
+			{ label = "100%", color = "#1C1F28FF" },
 		},
 	}
+
+	-- A backdrop for one HUD group at the current Background level ("" when it's off).
+	-- A non-clickable rounded Button (Panels can't round), positioned like the HUD's other pieces.
+	-- Must be inserted BEFORE the group's buttons so it's drawn behind them.
+	function CUSTOM.bgXml(id, rectAlign, x, y, w, h, extra)
+		local c = CUSTOM.bgLevels[CUSTOM.bg].color
+		if not c then return "" end
+		return '<Button id="' .. id .. '" rectAlignment="' .. rectAlign .. '" offsetXY="' .. x .. ' ' .. y .. '"'
+			.. ' width="' .. w .. '" height="' .. h .. '" raycastTarget="false" roundEdges="true"'
+			.. ' colors="' .. c .. '|' .. c .. '|' .. c .. '|' .. c .. '" ' .. (extra or '') .. ' />'
+	end
+
+	-- Is a backdrop showing? (Backgrounds above 0%)
+	function CUSTOM.bgOn()
+		return CUSTOM.bgLevels[CUSTOM.bg].color ~= nil
+	end
+
+	-- Space between a group's content and its backdrop edge: the margin plus the rim width (the edge
+	-- buttons/panels carry rims while a backdrop is on, which makes them look bigger)
+	function CUSTOM.bgPad()
+		return CUSTOM.bgMargin + CUSTOM.rimSize
+	end
+
+	-- Main HUD block backdrop width: the history grid (x ±112.5), or the ‹ › arrows (±122.5) when
+	-- there's more than one page, plus the padding each side
+	function CUSTOM.mainBgW(pages)
+		return 2 * ((pages > 1 and 122.5 or 112.5) + CUSTOM.bgPad())
+	end
+
+	-- Settings column backdrop height: from below the debug row (y 2) up to the Customise button (236),
+	-- or to the customise panel's top (376) while it's open
+	function CUSTOM.settingsBgH(customiseOpen)
+		return (customiseOpen and (240 + CUSTOM.hudPanelH) or 236) - 2 + 2 * CUSTOM.bgPad()
+	end
+
+	-- Half-strength rim colour for a panel background (nil while Backgrounds is off)
+	function CUSTOM.panelRimColor()
+		return CUSTOM.bgOn() and CUSTOM.panelRim or nil
+	end
+
+	-- Rim attributes for a dynamic-panel button ("" while Backgrounds is off, so see-through buttons
+	-- stay see-through: an outline is copies of the button drawn behind it, see btnStyle)
+	function CUSTOM.rim()
+		if not CUSTOM.bgOn() then return "" end
+		return ' outline="' .. CUSTOM.bgRim .. '" outlineSize="' .. CUSTOM.rimSize .. ' ' .. CUSTOM.rimSize .. '"'
+	end
 
 	-- "#RRGGBB" / "rrggbb" (spaces ignored) → "#RRGGBB", or nil if it isn't a colour
 	function CUSTOM.cleanHex(s)
@@ -464,6 +560,12 @@
 		BTN_STYLE_ORIGINAL.dynSlotSelected = dyn
 		BTN_STYLE.histSelected.colors      = hist
 		BTN_STYLE.dynSlotSelected.colors   = dyn
+		-- Light colours (white, yellow, lime…) get dark text, so the selected name stays readable
+		local h = CUSTOM.selectColor
+		local lum = (0.299 * tonumber(h:sub(2, 3), 16) + 0.587 * tonumber(h:sub(4, 5), 16) + 0.114 * tonumber(h:sub(6, 7), 16)) / 255
+		local txt = lum > 0.6 and "#10141E" or "#FFFFFF"
+		BTN_STYLE.histSelected.textColor    = txt
+		BTN_STYLE.dynSlotSelected.textColor = txt
 		applyOpacity()
 	end
 
@@ -619,6 +721,7 @@
 				hudOff              = hudOff,
 				debugOpen           = debugOpen,
 				selectColor         = CUSTOM.selectColor,
+				bgLevel             = CUSTOM.bg,
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -659,6 +762,7 @@
 		if type(data.hudOff) == "boolean" then hudOff = data.hudOff end
 		if type(data.debugOpen) == "boolean" then debugOpen = data.debugOpen end
 		CUSTOM.selectColor = CUSTOM.cleanHex(data.selectColor) or CUSTOM.defaultColor
+		if CUSTOM.bgLevels[data.bgLevel] then CUSTOM.bg = data.bgLevel end
 		-- Upgrade history from older saves (adds size info, name-only display)
 		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
@@ -871,6 +975,9 @@
 		-- OUI history rows: gap between the two rows (was 2), widened so the tabs have room.
 		-- The grid, edit overlay and ‹ › arrows grow by the extra; the ⚙ button below moves down by it.
 		ouiRowGap = 14,
+		-- Token History panel: Edit History is double height (two rows + the gap) until edit mode
+		-- splits it into "Stop Editing" + "Clear All History" (one row each)
+		editH = { hudShort = 28, hudTall = 28, ouiShort = 44, ouiTall = 44 },   -- one row both ways now (user: tall-to-short felt odd, and a fast double/triple click could land on Clear)
 		stripColor = "#1A1D2CFF",   -- fully solid navy (see-through was hard to read)
 	}
 	-- One-line name for the strip ("" when the slot has no picture, so the strip hides)
@@ -1017,11 +1124,20 @@
 			UI.hide("TokenApplier_hud_deleteOverlayPanel")
 		end
 		local style = on and EDIT_ON_STYLE or EDIT_OFF_STYLE
+		-- Edit History is double height normally; in edit mode it drops to one row and Clear History
+		-- takes the other half (the layout gives the space to whichever buttons are showing)
 		setButtonLook(self.UI, "editHistoryBtn", on and "←Stop Editing History" or "Edit History", style)
+		setPressedExtras(self.UI, "editHistoryBtn", on, 2)   -- "Stop Editing" is pressed in
+		self.UI.setAttribute("editHistoryBtn", "preferredHeight", on and HIST_LOOK.editH.ouiShort or HIST_LOOK.editH.ouiTall)
 		self.UI.setAttribute("clearHistoryBtn", "active", on and "True" or "False")
 		-- HUD versions
 		setHudButtonLook("TokenApplier_hud_editHistoryBtn", on and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL, style)
+		setPressedExtras(UI, "TokenApplier_hud_editHistoryBtn", on, 1)
+		UI.setAttribute("TokenApplier_hud_editHistoryBtn", "preferredHeight", on and HIST_LOOK.editH.hudShort or HIST_LOOK.editH.hudTall)
 		UI.setAttribute("TokenApplier_hud_clearHistoryBtn", "active", on and "True" or "False")
+		-- Row 3 placeholder steps aside for Clear All History in edit mode (show/hide: Panel first-show quirk)
+		if on then self.UI.hide("historyRow3") ; UI.hide("TokenApplier_hud_historyRow3")
+		else       self.UI.show("historyRow3") ; UI.show("TokenApplier_hud_historyRow3") end
 	end
 
 	-- HistoryEdit button
@@ -1218,17 +1334,24 @@
 		-- Debug buttons: only while settings AND the Debug toggle are on (#99)
 		local debugIds = { "TokenApplier_hud_restore_tokens", "TokenApplier_hud_find_tokens", "TokenApplier_hud_debug_ids" }
 		local function setShown(id, on)
-			if on then UI.show(id)
+			if on then
+				-- Skip what's already showing: show() replays the Grow animation even on a visible panel
+				-- (restoring the HUD with settings open made Token History animate twice)
+				local a = tostring(UI.getAttribute(id, "active") or "")
+				if a:lower() ~= "true" then UI.show(id) end
 			elseif instant then UI.setAttribute(id, "active", "False")
 			else UI.hide(id) end
 		end
 		for _, id in ipairs(ids) do setShown(id, settingsOpen) end
 		for _, id in ipairs(debugIds) do setShown(id, settingsOpen and debugOpen) end
 		setShown("TokenApplier_hud_customisePanel", settingsOpen and CUSTOM.open)
+		-- Settings backdrop (#100) only exists when Backgrounds is on
+		if CUSTOM.bgLevels[CUSTOM.bg].color then setShown("TokenApplier_hud_settingsBg", settingsOpen) end
 		setShown("TokenApplier_hud_deleteOverlayPanel", historyEditMode)
 		UI.setAttribute("TokenApplier_hud_clearHistoryBtn", "active", historyEditMode and "True" or "False")
 		UI.setAttribute("TokenApplier_hud_settings", "colors",
 			BTN_STYLE[settingsOpen and HUD_SETTINGS_OPEN_STYLE or HUD_SETTINGS_CLOSED_STYLE].colors)
+		setPressedExtras(UI, "TokenApplier_hud_settings", settingsOpen, 1)   -- pressed in while settings are open
 	end
 
 	function hud_toggleVisible(player, _, _)
@@ -1296,7 +1419,7 @@
 			saveState()
 		end
 		UI.setAttribute("TokenApplier_hud_root", "allowDragging", hudDraggable and "true" or "false")
-		setHudButtonLook("TokenApplier_hud_dragToggleBtn", "Drag", hudDraggable and "toggleOn" or "danger")
+		setHudButtonLook("TokenApplier_hud_dragToggleBtn", "Drag", hudDraggable and "toggleOn" or "toggleOff")
 		rebuildHUD()   -- see btn_toggleHUD: rebuild so the button's text colour is correct
 	end
 
@@ -1382,16 +1505,21 @@
 			if CUSTOM.open then   -- closing settings closes the customise panel too
 				CUSTOM.open = false
 				self.UI.hide("customisePanel")
-				setButtonLook(self.UI, "customiseToggleBtn", nil, "settingsItem")   -- was left green
+				-- and the HUD settings backdrop drops back to its normal height (it was left tall)
+				if CUSTOM.bgOn() then UI.setAttribute("TokenApplier_hud_settingsBg", "height", CUSTOM.settingsBgH(false)) end
+				setButtonLook(self.UI, "customiseToggleBtn", nil, "settingsItem")   -- pop the button back out
+				setPressedExtras(self.UI, "customiseToggleBtn", false, 2)
 				setHudButtonLook("TokenApplier_hud_customiseToggle", nil, "settingsItem")
+				setPressedExtras(UI, "TokenApplier_hud_customiseToggle", false, 1)
 			end
 		end
 		-- HUD side (also recolours the HUD ⚙). While minimised, restore catches it up instead.
 		if hudVisible then syncHudSettings() end
 		-- Update settings button highlight on the OUI
-		local sStyle = BTN_STYLE[settingsOpen and "active" or "settings"]
+		local sStyle = BTN_STYLE[settingsOpen and "pressed" or "settings"]
 		self.UI.setAttribute("settingsBtn", "colors",    sStyle.colors)
 		self.UI.setAttribute("settingsBtn", "textColor", sStyle.textColor)
+		setPressedExtras(self.UI, "settingsBtn", settingsOpen, 2)   -- pressed in while settings are open
 		-- (No setAttribute "active" on panels here: it skips the Grow/Shrink animation that show()/hide() play)
 	end
 	
@@ -1443,6 +1571,14 @@
 		setSelectColor(CUSTOM.defaultColor)
 	end
 
+	-- Backgrounds (#100): 0% → 50% → 100% → 0%. Rebuilds both UIs (HUD backdrops + the button labels).
+	function btn_cycleBackground(_, _)
+		CUSTOM.bg = CUSTOM.bg % #CUSTOM.bgLevels + 1
+		saveState()
+		rebuildXML()
+		rebuildHUD()
+	end
+
 	-- SetTemplate button toggle
 	function btn_toggleSetTemplate(_, _)
 		hideSetTemplate = not hideSetTemplate
@@ -1451,7 +1587,7 @@
 		else
 			UI.show("TokenApplier_hud_setTemplate")
 		end
-		setHudButtonLook("TokenApplier_hud_templateVis", hideSetTemplate and "O" or "I", hideSetTemplate and "danger" or "toggleOn")
+		setHudButtonLook("TokenApplier_hud_templateVis", hideSetTemplate and "O" or "I", hideSetTemplate and "toggleOff" or "toggleOn")
 		rebuildHUD()   -- see btn_toggleHUD
 		rebuildXML()
 	end
@@ -1605,6 +1741,8 @@
 			self.UI.setAttribute("histDot" .. p,       "colors", s.colors)
 			UI.setAttribute("TokenApplier_hud_histDot" .. p,     "colors", s.colors)
 		end
+		-- Main HUD backdrop (#100) widens to take in the ‹ › arrows once there's a 2nd page
+		if CUSTOM.bgOn() then UI.setAttribute("TokenApplier_hud_mainBg", "width", CUSTOM.mainBgW(pages)) end
 	end
 
 	--refresh history slots using setAttribute system (prevent need for rebuilds)
@@ -1837,14 +1975,14 @@
 	    -- ── Settings button ──
 	    table.insert(lines, '<Button id="settingsBtn"')
 		table.insert(lines, '  onClick="btn_toggleSettings"')
-		table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
+		table.insert(lines, '  ' .. btnStyle(settingsOpen and "pressed" or "settings"))   -- pressed in while settings are open
 	    table.insert(lines, '  position="0 ' .. (-530 - (HIST_LOOK.ouiRowGap - 2)) .. ' -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
 	    table.insert(lines, '  fontSize="40"')
 	    table.insert(lines, '  tooltip="Open/close settings"')
 	    local ss = BTN_STYLE.settings
-		table.insert(lines, '  padding="5 5 5 5"><Text text="⚙" color="' .. ss.textColor .. '" fontSize="40" /></Button>')
+		table.insert(lines, '  padding="5 5 5 5"><Text id="settingsBtn_text" text="⚙" color="' .. ss.textColor .. '" offsetXY="0 ' .. (settingsOpen and -2 or 0) .. '" fontSize="40" /></Button>')
 
 	    -- ── Settings panel ──
 		-- Layout (OUI units, y up). History grid spans x -224..224, top at y -266.
@@ -1865,11 +2003,9 @@
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="222" height="172"')  -- title 20 + 3 rows × 44 + 3 gaps × 4 + 8 padding
 		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
-		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
+		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
 		table.insert(lines, '    <Text text="Token History" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="214" preferredHeight="20" />')
-		local eStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
-		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(eStyle) .. ' fontSize="20" preferredWidth="214" preferredHeight="44"><Text id="editHistoryBtn_text" text="' .. (historyEditMode and "←Stop Editing History" or "Edit History") .. '" color="' .. BTN_STYLE[eStyle].textColor .. '" fontSize="20" /></Button>')
-		-- Default token scale (moved here from the main settings panel)
+		-- Default token scale (first, under the title)
 		-- Stepper layout: label on the left, [–][+] side by side on the right
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" preferredHeight="44">')
 		table.insert(lines, '      <Text id="defaultScaleLabel" text="Default Scale: ' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" resizeTextForBestFit="true" resizeTextMinSize="10" resizeTextMaxSize="16" alignment="MiddleLeft" preferredWidth="118" preferredHeight="44" />')
@@ -1882,8 +2018,15 @@
 		table.insert(lines, '        ' .. btnStyle("settingsItem"))
 		table.insert(lines, '        fontSize="22" preferredWidth="44" preferredHeight="44">+</Button>')
 		table.insert(lines, '    </HorizontalLayout>')
+		-- Edit History: double height, filling Clear History's space; splits into two rows in edit mode (setHistoryEditMode)
+		local eStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
+		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(eStyle) .. ' fontSize="20" preferredWidth="214" preferredHeight="' .. (historyEditMode and HIST_LOOK.editH.ouiShort or HIST_LOOK.editH.ouiTall) .. '"><Text id="editHistoryBtn_text" offsetXY="0 ' .. (historyEditMode and -2 or 0) .. '" text="' .. (historyEditMode and "←Stop Editing History" or "Edit History") .. '" color="' .. BTN_STYLE[eStyle].textColor .. '" fontSize="20" /></Button>')
 		-- Clear History: last, and only shown while Edit History is live. Two-click confirm (see btn_clearHistory)
 		table.insert(lines, '    <Button id="clearHistoryBtn" onClick="btn_clearHistory" tooltip="Clear all token history and reset template (click twice to confirm)" ' .. btnStyle(CLEAR_HISTORY_STYLE) .. ' fontSize="20" preferredWidth="214" preferredHeight="44" active="' .. (historyEditMode and "True" or "False") .. '"><Text id="clearHistoryBtn_text" text="' .. CLEAR_HISTORY_LABEL .. '" color="' .. BTN_STYLE[CLEAR_HISTORY_STYLE].textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="10" resizeTextMaxSize="20" /></Button>')
+		-- Row 3 placeholder: invisible, holds the empty row while NOT editing (Clear All History takes the row
+		-- in edit mode), so the layout can't stretch the scale row into it. Becomes Move History later (#104).
+		table.insert(lines, '    <Panel id="historyRow3" color="#00000000" raycastTarget="false" preferredWidth="214" preferredHeight="' .. HIST_LOOK.editH.ouiShort .. '"'
+			.. ' active="' .. (historyEditMode and "False" or "True") .. '" />')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 
@@ -1899,21 +2042,21 @@
 		table.insert(lines, '  color="' .. op("#1A1A1AF2") .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
 		table.insert(lines, '    <Text text="Token Creation" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="208" preferredHeight="20" />')
-		table.insert(lines, '    <Button onClick="btn_toggleSetTemplate"')
-		table.insert(lines, '      tooltip="Show or hide the Set Template button"')
-		table.insert(lines, '      ' .. btnStyle(hideSetTemplate and "danger" or "toggleOn"))
-		table.insert(lines, '      fontSize="18" preferredWidth="208" preferredHeight="40"')
-		table.insert(lines, '      ><Text text="' .. (hideSetTemplate and "Set Template: OFF" or "Set Template: ON") .. '" color="' .. BTN_STYLE[hideSetTemplate and "danger" or "toggleOn"].textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '    <Button onClick="btn_toggleDropTemplate"')
 		table.insert(lines, '      tooltip="Enable or disable dropping objects onto TC to set template"')
-		table.insert(lines, '      ' .. btnStyle(dropTemplateEnabled and "toggleOn" or "danger"))
+		table.insert(lines, '      ' .. btnStyle(dropTemplateEnabled and "toggleOn" or "toggleOff"))
 		table.insert(lines, '      fontSize="18" preferredWidth="208" preferredHeight="40"')
-		table.insert(lines, '      ><Text text="' .. (dropTemplateEnabled and "Drop Template: ON" or "Drop Template: OFF") .. '" color="' .. BTN_STYLE[dropTemplateEnabled and "toggleOn" or "danger"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '      ><Text text="' .. (dropTemplateEnabled and "Drop Template: ON" or "Drop Template: OFF") .. '" color="' .. BTN_STYLE[dropTemplateEnabled and "toggleOn" or "toggleOff"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '    <Button onClick="btn_toggleSetTemplate"')
+		table.insert(lines, '      tooltip="Show or hide the Set Template button"')
+		table.insert(lines, '      ' .. btnStyle(hideSetTemplate and "toggleOff" or "toggleOn"))
+		table.insert(lines, '      fontSize="18" preferredWidth="208" preferredHeight="40"')
+		table.insert(lines, '      ><Text text="' .. (hideSetTemplate and "Set Template: OFF" or "Set Template: ON") .. '" color="' .. BTN_STYLE[hideSetTemplate and "toggleOff" or "toggleOn"].textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '    <Button onClick="btn_toggleTemplatePreview"')
 		table.insert(lines, '      tooltip="Spawn a 3D copy of the template next to the Token Applier when it has no image to show"')
-		table.insert(lines, '      ' .. btnStyle(showTemplatePreview and "toggleOn" or "danger"))
+		table.insert(lines, '      ' .. btnStyle(showTemplatePreview and "toggleOn" or "toggleOff"))
 		table.insert(lines, '      fontSize="18" preferredWidth="208" preferredHeight="40"')
-		table.insert(lines, '      ><Text text="' .. (showTemplatePreview and "3D Preview: ON" or "3D Preview: OFF") .. '" color="' .. BTN_STYLE[showTemplatePreview and "toggleOn" or "danger"].textColor .. '" fontSize="18" /></Button>')
+		table.insert(lines, '      ><Text text="' .. (showTemplatePreview and "3D Preview: ON" or "3D Preview: OFF") .. '" color="' .. BTN_STYLE[showTemplatePreview and "toggleOn" or "toggleOff"].textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 
@@ -1930,14 +2073,14 @@
 		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
 		-- [ HUD: ON (290) ][ Opaque (146) ] — 290 + 4 gap + 146 = 440 (panel 448 − 8 padding)
 		table.insert(lines, '  <HorizontalLayout spacing="4" padding="4 4 4 4" childAlignment="MiddleCenter">')
-		local hStyle = hudOff and "danger" or "toggleOn"
+		local hStyle = hudOff and "toggleOff" or "toggleOn"
 		table.insert(lines, '    <Button id="hudToggleBtn"')
 		table.insert(lines, '      onClick="btn_toggleHUD"')
 		table.insert(lines, '      tooltip="HUD: OFF removes the on-screen HUD completely, for tables whose own HUD clashes with it. Saved with this object."')
 		table.insert(lines, '      ' .. btnStyle(hStyle))
 		table.insert(lines, '      fontSize="22" preferredWidth="290" preferredHeight="50"')
 		table.insert(lines, '      ><Text text="' .. (hudOff and "HUD: OFF" or "HUD: ON") .. '" color="' .. BTN_STYLE[hStyle].textColor .. '" fontSize="22" /></Button>')
-		local oStyle = uiOpaque and "toggleOn" or "danger"
+		local oStyle = uiOpaque and "toggleOn" or "toggleOff"
 		table.insert(lines, '    <Button id="opacityToggleBtn"')
 		table.insert(lines, '      onClick="btn_toggleOpacity"')
 		table.insert(lines, '      tooltip="' .. OPAQUE_TOOLTIP[uiOpaque] .. '"')
@@ -1948,24 +2091,24 @@
 		table.insert(lines, '</Panel>')
 
 		-- ── Customise (1.4.3): button above Token Creation; panel above it, in the space left of Add Token ──
-		--   Customise button  x -684..-468  y -222..-258      Customise panel  x -684..-236  y -82..-218
-		local cusStyle = CUSTOM.open and "toggleOn" or "settingsItem"
+		--   Customise button  x -684..-468  y -222..-258      Customise panel  x -684..-236  y -52..-218
+		local cusStyle = CUSTOM.open and "pressed" or "settingsItem"   -- pressed in while its panel is open
 		table.insert(lines, '<Button id="customiseToggleBtn" onClick="btn_toggleCustomise"')
 		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 		table.insert(lines, '  tooltip="Customise: look and feel options (selection colour, ...)"')
 		table.insert(lines, '  ' .. btnStyle(cusStyle))
 		table.insert(lines, '  position="-576 -240 -25" rotation="0 0 0" width="216" height="36" fontSize="18">')
-		table.insert(lines, '  <Text id="customiseToggleBtn_text" text="Customise" color="' .. BTN_STYLE[cusStyle].textColor .. '" fontSize="18" width="216" height="36" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  <Text id="customiseToggleBtn_text" text="Customise" color="' .. BTN_STYLE[cusStyle].textColor .. '" offsetXY="0 ' .. (CUSTOM.open and -2 or 0) .. '" fontSize="18" width="216" height="36" alignment="MiddleCenter" /></Button>')
 
 		table.insert(lines, '<Panel id="customisePanel"')
 		table.insert(lines, '  active="' .. ((settingsOpen and CUSTOM.open) and "True" or "False") .. '"')
-		table.insert(lines, '  position="-460 -150 -20" rotation="0 0 0" width="448" height="136"')
+		table.insert(lines, '  position="-460 -135 -20" rotation="0 0 0" width="448" height="166"')
 		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="6" padding="8 8 8 8" childAlignment="UpperCenter" childForceExpandHeight="false">')
 		table.insert(lines, '    <Text text="Selection colour" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="432" preferredHeight="20" />')
-		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="44">')
+		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="28">')
 		for i = 1, #CUSTOM.presets do
-			table.insert(lines, '      ' .. CUSTOM.swatchXml('selColor_' .. i, 'btn_selectColorPreset', i, 'preferredWidth="47" preferredHeight="44"', "3 3"))
+			table.insert(lines, '      ' .. CUSTOM.swatchXml('selColor_' .. i, 'btn_selectColorPreset', i, 'preferredWidth="28" preferredHeight="28"', "2 2"))
 		end
 		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="40">')
@@ -1975,19 +2118,25 @@
 		table.insert(lines, '      <Button onClick="btn_selectColorReset" ' .. btnStyle("settingsItem") .. ' fontSize="18" tooltip="Back to the default cyan" preferredWidth="100" preferredHeight="40">'
 			.. '<Text text="Reset" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="18" width="100" height="40" alignment="MiddleCenter" /></Button>')
 		table.insert(lines, '    </HorizontalLayout>')
+		-- Backgrounds row (#100): label + one button that cycles 0% / 50% / 100% (affects the HUD)
+		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="40">')
+		table.insert(lines, '      <Text text="HUD background" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="18" fontStyle="Bold" alignment="MiddleLeft" preferredWidth="200" preferredHeight="40" />')
+		table.insert(lines, '      <Button onClick="btn_cycleBackground" ' .. btnStyle("settingsItem") .. ' fontSize="18" tooltip="Fill the see-through gaps behind the HUD: 0% / 50% / 100% (click to cycle)" preferredWidth="100" preferredHeight="40">'
+			.. '<Text text="' .. CUSTOM.bgLevels[CUSTOM.bg].label .. '" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="18" width="100" height="40" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 
 		-- ── Debug toggle + Debug Settings panel (bottom; grey so it doesn't draw the eye) (#99) ──
 		-- Toggle: right end of the bottom row, its right edge in line with the Token History panel (x -236).
 		-- Panel (only while the toggle is on): fills the rest of the row to the left, x -684..-356.
-		local dbgStyle = debugOpen and "toggleOn" or "debug"
+		local dbgStyle = debugOpen and "pressed" or "debug"   -- pressed in while the debug buttons show
 		table.insert(lines, '<Button id="debugToggleBtn" onClick="btn_toggleDebug"')
 		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 		table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '"')
 		table.insert(lines, '  ' .. btnStyle(dbgStyle))
 		table.insert(lines, '  position="-294 -532 -25" rotation="0 0 0" width="116" height="40" fontSize="18">')
-		table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[dbgStyle].textColor .. '" fontSize="18" width="116" height="40" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[dbgStyle].textColor .. '" offsetXY="0 ' .. (debugOpen and -2 or 0) .. '" fontSize="18" width="116" height="40" alignment="MiddleCenter" /></Button>')
 
 		table.insert(lines, '<Panel id="debugSettingsPanel"')
 		table.insert(lines, '  active="' .. ((settingsOpen and debugOpen) and "True" or "False") .. '"')
@@ -2218,6 +2367,21 @@
 		table.insert(lines, '  restrictDraggingToParentBounds="false"')
 		table.insert(lines, '  returnToOriginalPositionWhenReleased="false">')
 
+	    -- ── Backgrounds (#100): backdrops built FIRST so they're drawn behind everything ──
+	    -- Each = the group's outer content edges + CUSTOM.bgMargin all round. Lowest content is at y 2
+	    -- in every group (minimise, Line up, debug row), so every backdrop starts at y 2 - margin.
+	    local BGM    = CUSTOM.bgPad()
+	    local bgBase = 2 - BGM
+	    -- Main block: minimise (y 2) up to Add Token's size strip (191), or Set Template (220) when showing.
+	    -- Width follows the ‹ › arrows (refreshHistoryNav resizes it when the page count changes).
+	    local mainTop = hideSetTemplate and 191 or 220
+	    table.insert(lines, CUSTOM.bgXml("TokenApplier_hud_mainBg", "LowerCenter", 0, bgBase,
+	        CUSTOM.mainBgW(historyPageCount()), mainTop + BGM - bgBase))
+	    -- Settings column (only while settings are open): x -252..-132, debug row up to the Customise
+	    -- button, or the customise panel while that's open (btn_toggleSettings shrinks it live on close)
+	    table.insert(lines, CUSTOM.bgXml("TokenApplier_hud_settingsBg", "LowerCenter", -192, bgBase,
+	        120 + 2 * BGM, CUSTOM.settingsBgH(CUSTOM.open), 'active="' .. (settingsOpen and "True" or "False") .. '"'))
+
 	    -- ── CORE panel ──
 	    -- Contains: Add Token, History Grid (2×4), Minimize footer
 	    table.insert(lines, '<Panel id="TokenApplier_hud_core"')
@@ -2346,8 +2510,8 @@
 	    table.insert(lines, '  offsetXY="14 2"')
 	    table.insert(lines, '  width="197" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
-	    table.insert(lines, '  ' .. btnStyle("lookNeutral"))   -- 1.4.2 look test
-	    table.insert(lines, '  fontSize="12"')
+	    table.insert(lines, '  ' .. btnStyle("lookNeutral") .. CUSTOM.rim())   -- rim while a backdrop is on (#100)
+	    table.insert(lines, '  fontSize="9"')   -- HUD standard button text size
 	    table.insert(lines, '  tooltip="Minimise HUD"')
 	    table.insert(lines, '  >— minimise —</Button>')
 
@@ -2361,11 +2525,11 @@
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Settings"')
 		local ss = BTN_STYLE.settings
-		table.insert(lines, '  ><Text text="⚙" color="' .. ss.textColor .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  ><Text id="TokenApplier_hud_settings_text" text="⚙" color="' .. ss.textColor .. '" offsetXY="0 ' .. (settingsOpen and -1 or 0) .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
 		-- HUD layout (offsets from TokenApplier_hud_root's bottom-centre; x = button centre, y = button bottom)
-		--   Token History panel   x -252..-132  y 91..206   (left of the history grid, which spans x -112..112; gap holds the < arrow)
-		--   HUD block (2×2)       x -252..-132  y 31..87    [HUD][Opaque] over [Place][Drag]   (#91 order)
+		--   Token History panel   x -252..-132  y 31..146   (level with the history grid, y 31..142, beside it; gap holds the < arrow)
+		--   HUD block (2×2)       x -252..-132  y 150..206  [HUD][Opaque] over [Place][Drag]   (#91 order; above Token History)
 		--   Debug row             x -252..-132  y 2..28     [F][↺][ID] (22 wide, only with Debug on) [Debug] toggle x -174..-132 (#99); footer strip [⚙][minimise] x -112.5..112.5
 
 	    -- ── HUD block: HUD on/off, Opaque, Place HUD, HUD Drag (only while settings are open) ──
@@ -2376,7 +2540,7 @@
 	        local s = BTN_STYLE[style]
 	        local width  = ROW_W
 	        local centre = -252 + col * (ROW_W + ROW_GAP) + ROW_W / 2
-	        local bottom = 31 + row * (ROW_H + ROW_GAP)
+	        local bottom = 150 + row * (ROW_H + ROW_GAP)   -- above Token History (its top is 146)
 	        return '<Button id="' .. id .. '" active="' .. (settingsOpen and "True" or "False") .. '"'
 	            .. ' rectAlignment="LowerCenter" offsetXY="' .. centre .. ' ' .. bottom .. '" width="' .. width .. '" height="' .. ROW_H .. '"'
 	            .. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle(style) .. ' tooltip="' .. tooltip .. '">'
@@ -2389,11 +2553,11 @@
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_off", "btn_toggleHUD", "Turn the HUD off (turn it back on from the Token Applier's settings)",
 	        "toggleOn", "HUD", 0, 1))   -- only ever drawn while the HUD is on
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_opacityBtn", "btn_toggleOpacity", OPAQUE_TOOLTIP[uiOpaque],
-	        uiOpaque and "toggleOn" or "danger", "Opaque", 1, 1))
+	        uiOpaque and "toggleOn" or "toggleOff", "Opaque", 1, 1))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_placeBtn", "btn_toggleHudPlacement", "Place HUD: choose a fixed position for the HUD",
 	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", 0, 0))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_dragToggleBtn", "btn_toggleHudDraggable", "HUD Drag: allow the HUD to be dragged anywhere on screen",
-	        hudDraggable and "toggleOn" or "danger", "Drag", 1, 0))
+	        hudDraggable and "toggleOn" or "toggleOff", "Drag", 1, 0))
 
 	    -- ── Set Template button (independent) ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_setTemplate"')
@@ -2402,7 +2566,7 @@
 	    table.insert(lines, '  offsetXY="0 190"')  -- old loaction offsetXY="-200 145"'
 	    table.insert(lines, '  width="160" height="30"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_setTemplate"')
-	    table.insert(lines, '  ' .. btnStyle("lookTemplate"))   -- 1.4.2 look test
+	    table.insert(lines, '  ' .. btnStyle("lookTemplate") .. CUSTOM.rim())   -- rim while a backdrop is on (#100)
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Set token template from selected object">')
 	    table.insert(lines, '  <Text id="TokenApplier_hud_setTemplate_text" text="' .. xmlAttrText(hudTemplateLabel()) .. '" color="' .. BTN_STYLE.lookTemplate.textColor .. '" shadow="#000000AA" shadowDistance="1 -1" fontSize="14" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="14" width="160" height="30" alignment="MiddleCenter" /></Button>')   -- best fit: 2-line names shrink to fit the 30px height instead of losing line 2
@@ -2436,20 +2600,13 @@
 	    table.insert(lines, '  hideAnimation="Shrink"')
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="-192 91"')   -- up one row (30) to make room for the 2×2 HUD block
+	table.insert(lines, '  offsetXY="-192 31"')   -- level with the history grid (bottom 31); the 2×2 HUD block sits above
 	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
 		table.insert(lines, '  color="#00000000">')   -- see-through: the rounded background below does the colour
-		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op(SETTINGS_PANEL_COLOR)))   -- 1.4.2 look test
+		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op(SETTINGS_PANEL_COLOR), CUSTOM.panelRimColor()))   -- 1.4.2 look test
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
 	    table.insert(lines, '    <Text text="Token History" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="112" preferredHeight="14" />')
-	    -- Edit History
-	    local heStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
-	    table.insert(lines, '    <Button id="TokenApplier_hud_editHistoryBtn" onClick="' .. g .. '/btn_toggleHistoryEdit"')
-	    table.insert(lines, '      ' .. btnStyle(heStyle))
-	    table.insert(lines, '      preferredWidth="112" preferredHeight="28"')
-	    table.insert(lines, '      tooltip="Toggle delete mode on history slots">')
-	    table.insert(lines, '      <Text id="TokenApplier_hud_editHistoryBtn_text" text="' .. (historyEditMode and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL) .. '" color="' .. BTN_STYLE[heStyle].textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="7" resizeTextMaxSize="12" alignment="MiddleCenter" /></Button>')
-		-- Default scale adjust
+		-- Default scale adjust (first, under the title)
 		-- Stepper layout: label on the left (wraps to 2 lines), [–][+] side by side on the right
 		table.insert(lines, '    <HorizontalLayout spacing="2" childAlignment="MiddleCenter" preferredHeight="28">')
 		table.insert(lines, '      <Text id="TokenApplier_hud_defaultScaleLabel" text="Default Scale: ' .. string.format("%.1f", defaultScaleOffset) .. '" color="#FFFFFF" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="10" alignment="MiddleLeft" preferredWidth="52" preferredHeight="28" />')
@@ -2462,13 +2619,25 @@
 		table.insert(lines, '        tooltip="Increase default spawn scale"')
 		table.insert(lines, '        fontSize="16" preferredWidth="28" preferredHeight="28">+</Button>')
 		table.insert(lines, '    </HorizontalLayout>')
+	    -- Edit History: double height, filling the space Clear History uses. In edit mode it shrinks to one row
+	    -- ("←Stop Editing History") and Clear History appears under it: one button splits into two (setHistoryEditMode)
+	    local heStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
+	    table.insert(lines, '    <Button id="TokenApplier_hud_editHistoryBtn" onClick="' .. g .. '/btn_toggleHistoryEdit"')
+	    table.insert(lines, '      ' .. btnStyle(heStyle))
+	    table.insert(lines, '      preferredWidth="112" preferredHeight="' .. (historyEditMode and HIST_LOOK.editH.hudShort or HIST_LOOK.editH.hudTall) .. '"')
+	    table.insert(lines, '      tooltip="Toggle delete mode on history slots">')
+	    table.insert(lines, '      <Text id="TokenApplier_hud_editHistoryBtn_text" offsetXY="0 ' .. (historyEditMode and -1 or 0) .. '" text="' .. (historyEditMode and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL) .. '" color="' .. BTN_STYLE[heStyle].textColor .. '" fontSize="9" width="112" height="28" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 	    -- Clear History: last, only while Edit History is live; two-click confirm (see btn_clearHistory)
 	    table.insert(lines, '    <Button id="TokenApplier_hud_clearHistoryBtn" onClick="' .. g .. '/btn_clearHistory"')
 	    table.insert(lines, '      ' .. btnStyle(CLEAR_HISTORY_STYLE))
 	    table.insert(lines, '      preferredWidth="112" preferredHeight="28"')
 	    table.insert(lines, '      active="' .. (historyEditMode and "True" or "False") .. '"')
 	    table.insert(lines, '      tooltip="Clear all token history and reset template (click twice to confirm)">')
-	    table.insert(lines, '      <Text id="TokenApplier_hud_clearHistoryBtn_text" text="' .. HUD_CLEAR_LABEL .. '" color="' .. BTN_STYLE[CLEAR_HISTORY_STYLE].textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="7" resizeTextMaxSize="12" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '      <Text id="TokenApplier_hud_clearHistoryBtn_text" text="' .. HUD_CLEAR_LABEL .. '" color="' .. BTN_STYLE[CLEAR_HISTORY_STYLE].textColor .. '" fontSize="9" width="112" height="28" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
+	    -- Row 3 placeholder: invisible, holds the empty row while NOT editing (Clear All History takes the row
+	    -- in edit mode), so the layout can't stretch the scale row into it. Becomes Move History later (#104).
+	    table.insert(lines, '    <Panel id="TokenApplier_hud_historyRow3" color="#00000000" raycastTarget="false" preferredWidth="112" preferredHeight="' .. HIST_LOOK.editH.hudShort .. '"'
+	        .. ' active="' .. (historyEditMode and "False" or "True") .. '" />')
 	    table.insert(lines, '  </VerticalLayout>')
 	    table.insert(lines, '</Panel><!--TokenApplier_hud_settingsPanel-->') -- end TokenApplier_hud_settingsPanel
 
@@ -2509,7 +2678,7 @@
 	    table.insert(lines, '  >ID</Button>')
 
 	    -- ── Debug toggle (#99): right end of the bottom row, right edge in line with Token History (x -132) ──
-	    local hDbgStyle = debugOpen and "toggleOn" or "debug"
+	    local hDbgStyle = debugOpen and "pressed" or "debug"   -- pressed in while the debug buttons show
 	    table.insert(lines, '<Button id="TokenApplier_hud_debugToggle"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-153 2" width="42" height="26"')
@@ -2517,27 +2686,27 @@
 	    table.insert(lines, '  ' .. btnStyle(hDbgStyle))
 	    table.insert(lines, '  fontSize="9"')
 	    table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '">')
-	    table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[hDbgStyle].textColor .. '" fontSize="9" width="42" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[hDbgStyle].textColor .. '" offsetXY="0 ' .. (debugOpen and -1 or 0) .. '" fontSize="9" width="42" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 
 	    -- ── Customise (1.4.3): button right above the Token History panel; its panel opens above that ──
-	    --   Customise button  x -252..-132  y 210..236        Customise panel  x -252..-132  y 240..350
-	    local hCusStyle = CUSTOM.open and "toggleOn" or "settingsItem"
+	    --   Customise button  x -252..-132  y 210..236        Customise panel  x -252..-132  y 240..356 (CUSTOM.hudPanelH)
+	    local hCusStyle = CUSTOM.open and "pressed" or "settingsItem"   -- pressed in while its panel is open
 	    table.insert(lines, '<Button id="TokenApplier_hud_customiseToggle"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-192 210" width="120" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleCustomise" ' .. btnStyle(hCusStyle) .. ' fontSize="9"')
 	    table.insert(lines, '  tooltip="Customise: look and feel options (selection colour, ...)">')
-	    table.insert(lines, '  <Text id="TokenApplier_hud_customiseToggle_text" text="Customise" color="' .. BTN_STYLE[hCusStyle].textColor .. '" fontSize="9" width="120" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '  <Text id="TokenApplier_hud_customiseToggle_text" text="Customise" color="' .. BTN_STYLE[hCusStyle].textColor .. '" offsetXY="0 ' .. (CUSTOM.open and -1 or 0) .. '" fontSize="9" width="120" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 
 	    table.insert(lines, '<Panel id="TokenApplier_hud_customisePanel"')
 	    table.insert(lines, '  active="' .. ((settingsOpen and CUSTOM.open) and "True" or "False") .. '"')
-	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-192 240" width="120" height="110" color="#00000000">')
-	    table.insert(lines, '  ' .. roundedPanelBg(120, 110, op(SETTINGS_PANEL_COLOR)))
+	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-192 240" width="120" height="' .. CUSTOM.hudPanelH .. '" color="#00000000">')
+	    table.insert(lines, '  ' .. roundedPanelBg(120, CUSTOM.hudPanelH, op(SETTINGS_PANEL_COLOR), CUSTOM.panelRimColor()))
 	    table.insert(lines, '  <VerticalLayout spacing="4" padding="2 2 2 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
-	    table.insert(lines, '    <Text text="Selection colour" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="9" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="116" preferredHeight="12" />')
-	    table.insert(lines, '    <GridLayout cellSize="26 26" spacing="4 4" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" preferredWidth="116" preferredHeight="56">')
+	    table.insert(lines, '    <Text text="Selection colour" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="116" preferredHeight="12" />')
+	    table.insert(lines, '    <GridLayout cellSize="16 16" spacing="4 4" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" preferredWidth="116" preferredHeight="36">')
 	    for i = 1, #CUSTOM.presets do
-	        table.insert(lines, '      ' .. CUSTOM.swatchXml('TokenApplier_hud_selColor_' .. i, g .. '/btn_selectColorPreset', i, 'width="26" height="26"', "2 2"))
+	        table.insert(lines, '      ' .. CUSTOM.swatchXml('TokenApplier_hud_selColor_' .. i, g .. '/btn_selectColorPreset', i, 'width="16" height="16"', "1 1"))
 	    end
 	    table.insert(lines, '    </GridLayout>')
 	    table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="26">')   -- 26: an InputField keeps ~13px padding; at 22 its text was cut off
@@ -2547,6 +2716,12 @@
 	    table.insert(lines, '      <Button onClick="' .. g .. '/btn_selectColorReset" ' .. btnStyle("settingsItem") .. ' fontSize="9" tooltip="Back to the default cyan" preferredWidth="50" preferredHeight="26">'
 	        .. '<Text text="Reset" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="9" width="50" height="26" alignment="MiddleCenter" /></Button>')
 	    table.insert(lines, '    </HorizontalLayout>')
+	    -- Backgrounds row (#100): label + one button that cycles 0% / 50% / 100%
+	    table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="22">')
+	    table.insert(lines, '      <Text text="Background" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="9" fontStyle="Bold" alignment="MiddleLeft" preferredWidth="62" preferredHeight="22" />')
+	    table.insert(lines, '      <Button onClick="' .. g .. '/btn_cycleBackground" ' .. btnStyle("settingsItem") .. ' fontSize="9" tooltip="Fill the see-through gaps behind the HUD: 0% / 50% / 100% (click to cycle)" preferredWidth="50" preferredHeight="22">'
+	        .. '<Text text="' .. CUSTOM.bgLevels[CUSTOM.bg].label .. '" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="9" width="50" height="22" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '    </HorizontalLayout>')
 	    table.insert(lines, '  </VerticalLayout>')
 	    table.insert(lines, '</Panel><!--TokenApplier_hud_customisePanel-->')
 
@@ -2554,14 +2729,14 @@
 	    table.insert(lines, '<Button id="TokenApplier_hud_templateVis"')
 	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-97 190"')	-- left edge lines up with Add Token's left edge (x -112)
-	    table.insert(lines, '  width="30" height="30"')
+	    table.insert(lines, '  offsetXY="-103 196"')	-- 18×18 (was 30): left edge on Add Token's (x -112), centred on Set Template's height (190..220)
+	    table.insert(lines, '  width="18" height="18"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleSetTemplate"')
-	    table.insert(lines, '  ' .. btnStyle(hideSetTemplate and "danger" or "toggleOn"))
-	    table.insert(lines, '  fontSize="11"')
+	    table.insert(lines, '  ' .. btnStyle(hideSetTemplate and "toggleOff" or "toggleOn"))
+	    table.insert(lines, '  fontSize="8"')
 	    table.insert(lines, '  tooltip="Token Creation: show or hide the Set Template button (O = hidden, I = visible)"')
-	    local tvStyle = BTN_STYLE[hideSetTemplate and "danger" or "toggleOn"]
-		table.insert(lines, '  ><Text id="TokenApplier_hud_templateVis_text" text="' .. (hideSetTemplate and "O" or "I") .. '" color="' .. tvStyle.textColor .. '" fontSize="11" width="26" height="26" alignment="MiddleCenter" /></Button>')
+	    local tvStyle = BTN_STYLE[hideSetTemplate and "toggleOff" or "toggleOn"]
+		table.insert(lines, '  ><Text id="TokenApplier_hud_templateVis_text" text="' .. (hideSetTemplate and "O" or "I") .. '" color="' .. tvStyle.textColor .. '" fontSize="8" width="18" height="18" alignment="MiddleCenter" /></Button>')
 
 	    
 
@@ -2595,7 +2770,7 @@
 				.. 'fontSize="' .. fontSize .. '" '
 				.. 'rectAlignment="UpperLeft" '
 				.. 'offsetXY="' .. hcol(c) .. ' ' .. hrow(r) .. '" '
-				.. exA .. '>'
+				.. exA .. CUSTOM.rim() .. '>'   -- rim only while a backdrop is on (#100)
 				.. '<Text text="' .. label .. '" color="' .. s.textColor .. '" fontSize="' .. fontSize .. '" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
 				.. '</Button>'
 		end
@@ -2613,6 +2788,13 @@
 		table.insert(lines, '  offsetXY="' .. (128 + HDYN_W/2) .. ' 0"')
 		table.insert(lines, '  width="' .. HDYN_W .. '" height="' .. HDYN_H .. '"')
 		table.insert(lines, '  color="#00000000">')
+		-- Backgrounds (#100): first child, so it opens/closes with the panel and sits behind its buttons
+		-- Content sits HPAD inside the panel on every side except the bottom (Line up at y 2), so:
+		-- width = panel − 2 × (HPAD − margin), from y 2 − margin up to (panel top − HPAD) + margin.
+		-- Margin + the rim's width (CUSTOM.bgPad), like the other backdrops.
+		local dynM = CUSTOM.bgPad()
+		table.insert(lines, '  ' .. CUSTOM.bgXml("TokenApplier_hud_dynBg", "LowerCenter", 0, 2 - dynM,
+			HDYN_W - 2 * (HPAD - dynM), (HDYN_H - HPAD + dynM) - (2 - dynM)))
 
 		-- Mod grid — rows 0-2, cols 0-3
 		-- Row 0: [lineForward] [•] [Flip] [↕]
@@ -2644,7 +2826,7 @@
 		table.insert(lines, '  <Button id="TokenApplier_hud_dynLineUpToggle" '
 			.. 'onClick="' .. g .. '/btn_toggleModelLineUp" '
 			.. 'tooltip="Toggle line-up mode" '
-			.. btnStyle(LINEUP.style) .. ' '
+			.. btnStyle(LINEUP.style) .. CUSTOM.rim() .. ' '
 			.. 'width="' .. HUD_DYN.gridW .. '" height="' .. LINEUP_H .. '" '
 			.. 'fontSize="12" '
 			.. 'rectAlignment="UpperLeft" '
@@ -2676,7 +2858,7 @@
 			-- Name button
 			table.insert(lines, '  <Button id="TokenApplier_hud_dynSlot_' .. i .. '"')
 			table.insert(lines, '    onClick="' .. g .. '/btn_select_' .. i .. '"')
-			table.insert(lines, '    ' .. btnStyle("dynSlot"))
+			table.insert(lines, '    ' .. btnStyle("dynSlot") .. CUSTOM.rim())
 			table.insert(lines, '    active="False"')
 			table.insert(lines, '    tooltip="Click to select token"')
 			table.insert(lines, '    width="' .. HSW .. '" height="' .. HSH .. '"')
@@ -2693,7 +2875,7 @@
 			-- Remove button
 			table.insert(lines, '  <Button id="TokenApplier_hud_dynRemove_' .. i .. '"')
 			table.insert(lines, '    onClick="' .. g .. '/btn_remove_' .. i .. '"')
-			table.insert(lines, '    ' .. btnStyle("dynRemove"))
+			table.insert(lines, '    ' .. btnStyle("dynRemove") .. CUSTOM.rim())
 			table.insert(lines, '    active="False"')
 			table.insert(lines, '    tooltip="Remove token"')
 			table.insert(lines, '    width="' .. HRW .. '" height="' .. HSH .. '"')
