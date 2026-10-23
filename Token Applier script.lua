@@ -1075,11 +1075,38 @@
 	-- state, so settings (kept in sync with the OUI), edit mode and the dynamic panel come
 	-- back exactly as they were. Hiding the children one by one cut the Token History panel's
 	-- Shrink animation short, which left it half-alive and popping back on restore.
+	-- Shows/hides every HUD piece that belongs to settings (and edit mode) to match the saved
+	-- state. Only call it while the HUD is on screen: a hide inside the hidden (minimised) HUD
+	-- can't play the Token History panel's Shrink animation, so that panel would never close.
+	-- That's why btn_toggleSettings skips the HUD while minimised and restore calls this instead.
+	-- instant = true: hide WITHOUT the Shrink animation (setAttribute "active"). Used on restore while
+	-- the HUD is still hidden, so a panel left "open" is gone before anyone sees it shrink away.
+	local function syncHudSettings(instant)
+		local ids = { "TokenApplier_hud_settingsPanel", "TokenApplier_hud_off", "TokenApplier_hud_restore_tokens",
+			"TokenApplier_hud_find_tokens", "TokenApplier_hud_debug_ids", "TokenApplier_hud_placeBtn",
+			"TokenApplier_hud_dragToggleBtn", "TokenApplier_hud_opacityBtn", "TokenApplier_hud_templateVis" }
+		local function setShown(id, on)
+			if on then UI.show(id)
+			elseif instant then UI.setAttribute(id, "active", "False")
+			else UI.hide(id) end
+		end
+		for _, id in ipairs(ids) do setShown(id, settingsOpen) end
+		setShown("TokenApplier_hud_deleteOverlayPanel", historyEditMode)
+		UI.setAttribute("TokenApplier_hud_clearHistoryBtn", "active", historyEditMode and "True" or "False")
+		UI.setAttribute("TokenApplier_hud_settings", "colors",
+			BTN_STYLE[settingsOpen and HUD_SETTINGS_OPEN_STYLE or HUD_SETTINGS_CLOSED_STYLE].colors)
+	end
+
 	function hud_toggleVisible(player, _, _)
 		hudVisible = not hudVisible
 		if hudVisible then
+			-- Settings may have changed on the object while the HUD was minimised. Closed: switch the
+			-- pieces off instantly BEFORE the HUD reappears (no flicker of the panel shrinking).
+			-- Open: show them AFTER, because show animations can't play inside the hidden HUD.
+			if not settingsOpen then syncHudSettings(true) end
 			UI.show("TokenApplier_hud_root")
 			UI.hide("TokenApplier_hud_restore")
+			if settingsOpen then syncHudSettings() end
 			refreshSizeWarning()   -- bring the size banner back if the template needs it
 		else
 			UI.hide("TokenApplier_hud_root")
@@ -1209,36 +1236,18 @@
 			self.UI.show("clearHistoryPanel")
 			self.UI.show("templateSettingsPanel")
 			self.UI.show("debugSettingsPanel")
-			UI.show("TokenApplier_hud_settingsPanel")
-			UI.show("TokenApplier_hud_off")
-			UI.show("TokenApplier_hud_restore_tokens")
-			UI.show("TokenApplier_hud_find_tokens")
-			UI.show("TokenApplier_hud_debug_ids")
-			UI.show("TokenApplier_hud_placeBtn")
-			UI.show("TokenApplier_hud_dragToggleBtn")
-			UI.show("TokenApplier_hud_opacityBtn")
-			UI.show("TokenApplier_hud_templateVis")
 		else
 			self.UI.hide("settingsPanel")
 			self.UI.hide("clearHistoryPanel")
 			self.UI.hide("templateSettingsPanel")
 			self.UI.hide("debugSettingsPanel")
-			UI.hide("TokenApplier_hud_settingsPanel")
-			UI.hide("TokenApplier_hud_off")
-			UI.hide("TokenApplier_hud_restore_tokens")
-			UI.hide("TokenApplier_hud_find_tokens")
-			UI.hide("TokenApplier_hud_debug_ids")
-			UI.hide("TokenApplier_hud_placeBtn")
-			UI.hide("TokenApplier_hud_dragToggleBtn")
-			UI.hide("TokenApplier_hud_opacityBtn")
-			UI.hide("TokenApplier_hud_templateVis")
 		end
-		-- Update settings button highlight (OUI and HUD; the HUD one stayed blue after closing)
+		-- HUD side (also recolours the HUD ⚙). While minimised, restore catches it up instead.
+		if hudVisible then syncHudSettings() end
+		-- Update settings button highlight on the OUI
 		local sStyle = BTN_STYLE[settingsOpen and "active" or "settings"]
 		self.UI.setAttribute("settingsBtn", "colors",    sStyle.colors)
 		self.UI.setAttribute("settingsBtn", "textColor", sStyle.textColor)
-		UI.setAttribute("TokenApplier_hud_settings", "colors",
-			BTN_STYLE[settingsOpen and HUD_SETTINGS_OPEN_STYLE or HUD_SETTINGS_CLOSED_STYLE].colors)
 		-- (No setAttribute "active" on panels here: it skips the Grow/Shrink animation that show()/hide() play)
 	end
 	
@@ -2097,10 +2106,10 @@
 
 		-- HUD layout (offsets from TokenApplier_hud_root's bottom-centre; x = button centre, y = button bottom)
 		--   Token History panel   x -252..-132  y 61..176   (left of the history grid, which spans x -112..112; gap holds the < arrow)
-		--   HUD row               x -252..-132  y 31..57    [HUD][Place][Drag][Solid]
+		--   HUD row               x -252..-132  y 31..57    [HUD][Solid][Place][Drag]   (#91 order)
 		--   Debug row             x -252..-166  y 2..28     [F][↺][ID]  (left edge lines up with Token History + HUD row); footer strip [⚙][minimise] x -112.5..112.5
 
-	    -- ── HUD row: HUD on/off, Place HUD, HUD Drag, Solid/Opaque (only while settings are open) ──
+	    -- ── HUD row: HUD on/off, Solid/Opaque, Place HUD, HUD Drag (only while settings are open) ──
 	    -- 4 buttons × 27 wide + 3 gaps × 4 = 120, filling x -252..-132; centres -238.5 / -207.5 / -176.5 / -145.5
 	    local function hudRowBtn(id, onClick, tooltip, style, label, x)
 	        local s = BTN_STYLE[style]
@@ -2112,11 +2121,11 @@
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_off", "btn_toggleHUD", "Turn the HUD off (turn it back on from the Token Applier's settings)",
 	        "toggleOn", "HUD", -238.5))   -- only ever drawn while the HUD is on
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_placeBtn", "btn_toggleHudPlacement", "Place HUD: choose a fixed position for the HUD",
-	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -207.5))
+	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -176.5))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_dragToggleBtn", "btn_toggleHudDraggable", "HUD Drag: allow the HUD to be dragged anywhere on screen",
-	        hudDraggable and "toggleOn" or "danger", "Drag", -176.5))
+	        hudDraggable and "toggleOn" or "danger", "Drag", -145.5))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_opacityBtn", "btn_toggleOpacity", "Solid: make every Token Applier background fully opaque (HUD + object)",
-	        uiOpaque and "toggleOn" or "danger", "Solid", -145.5))
+	        uiOpaque and "toggleOn" or "danger", "Solid", -207.5))
 
 	    -- ── Set Template button (independent) ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_setTemplate"')
