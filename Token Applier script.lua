@@ -792,7 +792,34 @@
 		-- Name shown on slots with no image: small text, more characters per line, shrinks to fit
 		hudFont = 9,    -- was 14 (about 40% smaller)
 		ouiFont = 12,   -- was 20
+		-- Name tab on slots WITH a picture (#98): a small rounded, solid tab right UNDER the picture,
+		-- using the frame below it plus a little of the gap under the slot (never over the art).
+		-- Its top edge meets the picture's bottom edge.
+		hudStripH = 7,  hudStripFont = 6,  hudStripChars = 11,   -- HUD: frame 4 + 3 of the 3px row gap (5 was unreadable)
+		ouiStripH = 16, ouiStripFont = 12, ouiStripChars = 12,   -- OUI: frame 9 + 7 of the (wider) row gap
+		-- OUI history rows: gap between the two rows (was 2), widened so the tabs have room.
+		-- The grid, edit overlay and ‹ › arrows grow by the extra; the ⚙ button below moves down by it.
+		ouiRowGap = 14,
+		stripColor = "#1A1D2CFF",   -- fully solid navy (see-through was hard to read)
 	}
+	-- One-line name for the strip ("" when the slot has no picture, so the strip hides)
+	function HIST_LOOK.stripName(entry, chars)
+		if not (entry and entry.imageURL and entry.imageURL ~= "") then return "" end
+		return shortName(stripBBCode(entry.name or ""), chars, 1)
+	end
+	-- The tab's XML (built hidden/empty when there's no picture; refreshHistorySlots fills it).
+	-- A non-clickable Button rather than a Panel, purely for TTS's rounded corners (see roundedPanelBg).
+	-- inset = the frame width below the picture; the tab's top sits there, so its bottom pokes out under the slot.
+	function HIST_LOOK.stripXml(id, entry, w, h, font, chars, inset)
+		local name = HIST_LOOK.stripName(entry, chars)
+		local c = HIST_LOOK.stripColor
+		return '      <Button id="' .. id .. '_name" rectAlignment="LowerCenter" offsetXY="0 ' .. (inset - h) .. '"'
+			.. ' width="' .. w .. '" height="' .. h .. '" colors="' .. c .. '|' .. c .. '|' .. c .. '|' .. c .. '"'
+			.. ' roundEdges="true" raycastTarget="false" active="' .. (name ~= "" and "True" or "False") .. '">'
+			.. '<Text id="' .. id .. '_nameTxt" text="' .. xmlAttrText(name) .. '" fontSize="' .. font .. '" fontStyle="Bold"'
+			.. ' color="#FFFFFF" width="' .. w .. '" height="' .. h .. '" alignment="MiddleCenter" verticalOverflow="Overflow" raycastTarget="false" />'
+			.. '</Button>'
+	end
 	-- ── HUD dynamic panel measurements (#96) ──
 	-- Shared by buildHUDXml and refreshDynamicPanelSlots (Remove All follows the token list).
 	local HUD_DYN = {
@@ -1504,7 +1531,16 @@
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_txt",    "text",      hudLabel)
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_txt",    "color",     hudColor)
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_txt",    "active",    hasImage and "False" or "True")
-			
+
+			-- Name strip on picture slots (#98), OUI + HUD
+			local ouiStrip = HIST_LOOK.stripName(entry, HIST_LOOK.ouiStripChars)
+			local hudStrip = HIST_LOOK.stripName(entry, HIST_LOOK.hudStripChars)
+			-- show()/hide(), not setAttribute "active": a Panel built hidden can ignore its first setAttribute show
+			self.UI.setAttribute("histBtn" .. i .. "_nameTxt", "text", ouiStrip)
+			if ouiStrip ~= "" then self.UI.show("histBtn" .. i .. "_name") else self.UI.hide("histBtn" .. i .. "_name") end
+			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_nameTxt", "text", hudStrip)
+			if hudStrip ~= "" then UI.show("TokenApplier_hud_hist_" .. i .. "_name") else UI.hide("TokenApplier_hud_hist_" .. i .. "_name") end
+
 			-- OUI delete overlay slot
 			local delEntry = tokenHistory[histIndex(i)]
 			if delEntry and delEntry.imageURL and delEntry.imageURL ~= "" then
@@ -1588,11 +1624,11 @@
 
 	    -- ── History grid ──
 	    table.insert(lines, '<Panel id="historyPanel"')
-	    table.insert(lines,   ' position="0 -380 -25"')
+	    table.insert(lines,   ' position="0 ' .. (-380 - (HIST_LOOK.ouiRowGap - 2) / 2) .. ' -25"')
 	    table.insert(lines,   ' rotation="0 0 0"')
-	    table.insert(lines,   ' width="448" height="228"')
+	    table.insert(lines,   ' width="448" height="' .. (228 + (HIST_LOOK.ouiRowGap - 2)) .. '"')
 	    table.insert(lines,   ' color="#00000000">')
-	    table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
+	    table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 ' .. HIST_LOOK.ouiRowGap .. '" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="' .. (228 + (HIST_LOOK.ouiRowGap - 2)) .. '">')
 	   for i = 1, HISTORY_SLOTS do
 			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
@@ -1623,6 +1659,9 @@
 			table.insert(lines, '        alignment="MiddleCenter"')
 			table.insert(lines, '        width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
+			-- Name strip (#98), then the size badge on top of it
+			table.insert(lines, HIST_LOOK.stripXml('histBtn' .. i, entry, HIST_LOOK.ouiImg, HIST_LOOK.ouiStripH,
+				HIST_LOOK.ouiStripFont, HIST_LOOK.ouiStripChars, (110 - HIST_LOOK.ouiImg) / 2))
 			table.insert(lines, sizeBadgeXml('histBtn' .. i .. '_warn', sc, 28, 18))
 			table.insert(lines, '    </Button>')
 		end
@@ -1633,11 +1672,11 @@
 		-- ── Delete overlay panel ──
 		table.insert(lines, '<Panel id="deleteOverlayPanel"')
 		table.insert(lines, '  active="False"')
-		table.insert(lines, '  position="0 -380 -25"')
+		table.insert(lines, '  position="0 ' .. (-380 - (HIST_LOOK.ouiRowGap - 2) / 2) .. ' -25"')
 		table.insert(lines, '  rotation="0 0 0"')
-		table.insert(lines, '  width="448" height="228"')
+		table.insert(lines, '  width="448" height="' .. (228 + (HIST_LOOK.ouiRowGap - 2)) .. '"')
 		table.insert(lines, '  color="#00000000">')
-		table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 2" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="228">')
+		table.insert(lines, '  <GridLayout cellSize="110 110" spacing="2 ' .. HIST_LOOK.ouiRowGap .. '" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="448" height="' .. (228 + (HIST_LOOK.ouiRowGap - 2)) .. '">')
 		for i = 1, HISTORY_SLOTS do
 			local entry = tokenHistory[histIndex(i)]
 			table.insert(lines, '    <Button id="delBtn' .. i .. '"')
@@ -1661,7 +1700,7 @@
 		local hPages = historyPageCount()
 		local function ouiArrow(id, onClick, tooltip, label, x, on)
 			return '<Button id="' .. id .. '" onClick="' .. onClick .. '" ' .. btnStyle("historyNav")
-				.. ' position="' .. x .. ' -377 -30" rotation="0 0 0" width="14" height="222" tooltip="' .. tooltip .. '"'
+				.. ' position="' .. x .. ' ' .. (-377 - (HIST_LOOK.ouiRowGap - 2) / 2) .. ' -30" rotation="0 0 0" width="14" height="' .. (222 + (HIST_LOOK.ouiRowGap - 2)) .. '" tooltip="' .. tooltip .. '"'
 				.. ' active="' .. (on and "True" or "False") .. '">'
 				.. '<Text text="' .. label .. '" color="' .. BTN_STYLE.historyNav.textColor .. '" fontSize="18" fontStyle="Bold" alignment="MiddleCenter" /></Button>'
 		end
@@ -1680,7 +1719,7 @@
 	    table.insert(lines, '<Button id="settingsBtn"')
 		table.insert(lines, '  onClick="btn_toggleSettings"')
 		table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
-	    table.insert(lines, '  position="0 -530 -25"')
+	    table.insert(lines, '  position="0 ' .. (-530 - (HIST_LOOK.ouiRowGap - 2)) .. ' -25"')
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="448" height="60"')
 	    table.insert(lines, '  fontSize="40"')
@@ -2087,6 +2126,9 @@
 			table.insert(lines, '        color="' .. txtColor .. '"')
 			table.insert(lines, '        alignment="MiddleCenter"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
+			-- Name strip (#98), then the size badge on top of it
+			table.insert(lines, HIST_LOOK.stripXml('TokenApplier_hud_hist_' .. i, entry, HIST_LOOK.hudImg, HIST_LOOK.hudStripH,
+				HIST_LOOK.hudStripFont, HIST_LOOK.hudStripChars, (54 - HIST_LOOK.hudImg) / 2))
 			table.insert(lines, sizeBadgeXml('TokenApplier_hud_hist_' .. i .. '_warn', sc, 16, 10))
 			table.insert(lines, '    </Button>')
 		end
