@@ -658,18 +658,15 @@
 	    return nil
 	end
 
+	-- A token's display name: its own name, or (if it has none) its own object type, e.g.
+	-- "Custom_Token" (the same thing its history slot shows). Never the CURRENT TEMPLATE's name:
+	-- that used to make every unnamed token show whatever template was set at the time.
 	local function getTokenName(tokenGUID)
 	    local obj = getObjectFromGUID(tokenGUID)
 	    if obj then
 	        local n = obj.getName()
 	        if n and n ~= "" then return n end
-	    end
-	    if templateJSON then
-	        local ok, data = pcall(JSON.decode, templateJSON)
-	        if ok and type(data) == "table" then
-	            if data.Nickname and data.Nickname ~= "" then return data.Nickname end
-	            if data.Name    and data.Name    ~= "" then return data.Name    end
-	        end
+	        if obj.name and obj.name ~= "" then return obj.name end
 	    end
 	    return "Token"
 	end
@@ -1364,18 +1361,67 @@
 
 	-- Refreshes slot highlight states after a select/deselect.
 	-- Replaces the self.editButton loop in handleSelectToken.
+	-- ── Dynamic panel token rows (#97) ──
+	-- Each name button: a small picture of the token on its left (INSIDE the button, so every row
+	-- stays the same size), then the name, left-aligned. Rows without a picture keep the same left
+	-- gap so the names line up. Only the SELECTED row's name gets a shadow (it sits on cyan).
+	-- One table (not separate locals): this file is near Lua's 200-locals-per-chunk limit.
+	local DYN_SLOT = {
+		hudImg = 20, hudTextX = 26, hudTextW = 170, hudFont = 12,   -- HUD row: 200 × 24
+		ouiImg = 52, ouiTextX = 62, ouiTextW = 232, ouiFont = 20,   -- OUI row: 300 × 60
+		shadowOn = "#000000CC", shadowOff = "#00000000",           -- off = fully clear, same effect
+		images = {},   -- [token GUID] = picture URL, or "" for none (looked up once per token)
+	}
+
+	-- The token's own picture, or "" when there's nothing useful to show (same rules as history:
+	-- no blank placeholder, no WebP, no tinted white silhouettes)
+	function DYN_SLOT.imageFor(tGUID)
+		if DYN_SLOT.images[tGUID] then return DYN_SLOT.images[tGUID] end
+		local obj = getObjectFromGUID(tGUID)
+		if not obj then return "" end
+		local ok, custom = pcall(function() return obj.getCustomObject() end)
+		local img  = ok and type(custom) == "table" and custom.image or nil
+		local tint = obj.getColorTint()
+		local tinted = tint and (tint.r < 0.95 or tint.g < 0.95 or tint.b < 0.95)
+		local url = ""
+		if type(img) == "string" and img ~= "" and not img:find(BLANK_IMAGE_ID, 1, true)
+			and imageCheck[img] ~= "unsupported" and not (NAME_ONLY_TYPES[obj.name] and tinted) then
+			url = img
+		end
+		DYN_SLOT.images[tGUID] = url
+		return url
+	end
+
+	-- Paints token row i on BOTH UIs: colours, name colour + shadow, and (when tGUID is given)
+	-- the name and picture. The Button's own textColor is set too (TTS quirk, see setButtonLook).
+	function DYN_SLOT.paint(i, tGUID, isSelected)
+		local s      = BTN_STYLE[isSelected and "dynSlotSelected" or "dynSlot"]
+		local shadow = isSelected and DYN_SLOT.shadowOn or DYN_SLOT.shadowOff
+		local ouiId, hudId = "dynSlot_" .. i, "TokenApplier_hud_dynSlot_" .. i
+		for _, pair in ipairs({ { self.UI, ouiId }, { UI, hudId } }) do
+			local ui, id = pair[1], pair[2]
+			ui.setAttribute(id,           "colors",    s.colors)
+			ui.setAttribute(id,           "textColor", s.textColor)
+			ui.setAttribute(id .. "_text", "color",    s.textColor)
+			ui.setAttribute(id .. "_text", "shadow",   shadow)
+		end
+		if not tGUID then return end
+		local name = stripBBCode(getTokenName(tGUID))
+		self.UI.setAttribute(ouiId .. "_text", "text", shortName(name, 22, 2))
+		UI.setAttribute(hudId .. "_text",      "text", shortName(name, 28, 1))   -- one line, much more of the name
+		local url = DYN_SLOT.imageFor(tGUID)
+		for _, pair in ipairs({ { self.UI, ouiId }, { UI, hudId } }) do
+			local ui, id = pair[1], pair[2]
+			if url ~= "" then ui.setAttribute(id .. "_img", "image", url) end
+			ui.setAttribute(id .. "_img", "active", url ~= "" and "True" or "False")
+		end
+	end
+
 	local function refreshSlotHighlights()
 		local tokens = lastSelectedGUID and findTokensForTarget(lastSelectedGUID) or {}
 		for i, tGUID in ipairs(tokens) do
 			if i > MAX_TOKENS then break end
-			local isSelected = (selectedTokenGUID == tGUID)
-			local slotStyle  = isSelected and "dynSlotSelected" or "dynSlot"
-			local slotId     = "dynSlot_" .. i
-			local hudSlotId  = "TokenApplier_hud_dynSlot_" .. i
-			self.UI.setAttribute(slotId,    "colors",    BTN_STYLE[slotStyle].colors)
-			self.UI.setAttribute(slotId,    "textColor", BTN_STYLE[slotStyle].textColor)
-			UI.setAttribute(hudSlotId,      "colors",    BTN_STYLE[slotStyle].colors)
-			UI.setAttribute(hudSlotId,      "textColor", BTN_STYLE[slotStyle].textColor)
+			DYN_SLOT.paint(i, nil, selectedTokenGUID == tGUID)   -- colours + shadow only
 		end
 	end
 
@@ -1488,18 +1534,7 @@
 			UI.setAttribute("TokenApplier_hud_dynRemove_" .. i, "active", slotActive and "True" or "False")
 
 			if slotActive and tGUID then
-				local name      = getTokenName(tGUID)
-				local isSelected = (selectedTokenGUID == tGUID)
-				local slotStyle  = isSelected and "dynSlotSelected" or "dynSlot"
-				local label      = shortName(stripBBCode(name), 35, 2)
-				local hudLabel   = shortName(stripBBCode(name), 14, 2)
-
-				self.UI.setAttribute(slotId, "text",      label)
-				self.UI.setAttribute(slotId, "colors",    BTN_STYLE[slotStyle].colors)
-				self.UI.setAttribute(slotId, "textColor", BTN_STYLE[slotStyle].textColor)
-				UI.setAttribute(hudSlotId,   "text",      hudLabel)
-				UI.setAttribute(hudSlotId,   "colors",    BTN_STYLE[slotStyle].colors)
-				UI.setAttribute(hudSlotId,   "textColor", BTN_STYLE[slotStyle].textColor)
+				DYN_SLOT.paint(i, tGUID, selectedTokenGUID == tGUID)   -- name, picture, colours, shadow
 
 				self.setVar("removeSlot_" .. i, tGUID)
 				self.setVar("selectSlot_"  .. i, tGUID)
@@ -1920,7 +1955,14 @@
 	        table.insert(lines, '    width="' .. SW .. '" height="' .. BW .. '"')
 	        table.insert(lines, '    rectAlignment="UpperLeft"')
 	        table.insert(lines, '    offsetXY="' .. PAD .. ' ' .. yOffset .. '"')
-	        table.insert(lines, '    fontSize="22">–</Button>')
+	        table.insert(lines, '    fontSize="' .. DYN_SLOT.ouiFont .. '">')
+	        -- Token picture (left, inside the button) + left-aligned name; filled by DYN_SLOT.paint (#97)
+	        table.insert(lines, '    <Image id="dynSlot_' .. i .. '_img" image="" width="' .. DYN_SLOT.ouiImg .. '" height="' .. DYN_SLOT.ouiImg .. '"'
+	            .. ' rectAlignment="MiddleLeft" offsetXY="4 0" preserveAspect="true" raycastTarget="false" active="False" />')
+	        table.insert(lines, '    <Text id="dynSlot_' .. i .. '_text" text="–" color="' .. BTN_STYLE.dynSlot.textColor .. '" fontSize="' .. DYN_SLOT.ouiFont .. '"'
+	            .. ' width="' .. DYN_SLOT.ouiTextW .. '" height="' .. BW .. '" rectAlignment="MiddleLeft" offsetXY="' .. DYN_SLOT.ouiTextX .. ' 0"'
+	            .. ' alignment="MiddleLeft" shadow="' .. DYN_SLOT.shadowOff .. '" shadowDistance="2 -2" raycastTarget="false" />')
+	        table.insert(lines, '  </Button>')
 	        -- Remove button
 	        table.insert(lines, '  <Button id="dynRemove_' .. i .. '"')
 	        table.insert(lines, '    onClick="btn_remove_' .. i .. '"')
@@ -2379,7 +2421,14 @@
 			table.insert(lines, '    width="' .. HSW .. '" height="' .. HSH .. '"')
 			table.insert(lines, '    rectAlignment="UpperLeft"')
 			table.insert(lines, '    offsetXY="' .. slotX .. ' ' .. yOffset .. '"')
-			table.insert(lines, '    fontSize="14">–</Button>')
+			table.insert(lines, '    fontSize="' .. DYN_SLOT.hudFont .. '">')
+			-- Token picture (left, inside the button) + left-aligned name; filled by DYN_SLOT.paint (#97)
+			table.insert(lines, '    <Image id="TokenApplier_hud_dynSlot_' .. i .. '_img" image="" width="' .. DYN_SLOT.hudImg .. '" height="' .. DYN_SLOT.hudImg .. '"'
+				.. ' rectAlignment="MiddleLeft" offsetXY="3 0" preserveAspect="true" raycastTarget="false" active="False" />')
+			table.insert(lines, '    <Text id="TokenApplier_hud_dynSlot_' .. i .. '_text" text="–" color="' .. BTN_STYLE.dynSlot.textColor .. '" fontSize="' .. DYN_SLOT.hudFont .. '"'
+				.. ' width="' .. DYN_SLOT.hudTextW .. '" height="' .. HSH .. '" rectAlignment="MiddleLeft" offsetXY="' .. DYN_SLOT.hudTextX .. ' 0"'
+				.. ' alignment="MiddleLeft" horizontalOverflow="Overflow" shadow="' .. DYN_SLOT.shadowOff .. '" shadowDistance="1 -1" raycastTarget="false" />')
+			table.insert(lines, '  </Button>')
 			-- Remove button
 			table.insert(lines, '  <Button id="TokenApplier_hud_dynRemove_' .. i .. '"')
 			table.insert(lines, '    onClick="' .. g .. '/btn_remove_' .. i .. '"')
