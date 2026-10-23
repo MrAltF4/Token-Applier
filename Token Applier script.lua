@@ -63,8 +63,9 @@
 	}
 	local CLEAR_ARMED_STYLE   = "danger"         -- "Sure?" state: red
 	local HUD_CLEAR_LABEL     = "X Clear All History"     -- HUD wording for the same buttons
-	local HUD_EDIT_OFF_LABEL  = "Edit History"
-	local HUD_EDIT_ON_LABEL   = "←Stop Editing History"
+	local HUD_EDIT_OFF_LABEL  = "Delete History"   -- (was "Edit History": now there's Move History too, #104)
+	local HUD_EDIT_ON_LABEL   = "←Stop Deleting"
+	local MOVE_LABEL          = { [false] = "Move History", [true] = "←Stop Moving" }   -- #104, both UIs
 	local REMOVE_CONFIRM_TIME = 3.0   -- seconds the "Sure? Click again" state waits for the second click
 
 -- TEMPLATE SIZE / HISTORY DISPLAY CONSTANTS
@@ -297,6 +298,12 @@
 			transition  = "ColorTint",
 			outline     = "#7A86A2",
 			outlineSize = "2 2",
+		},
+		-- Move History (#104): the picked slot. White, so the frame around its picture reads as a white ring
+		movePicked = {
+			colors     = "#EEF2F8F2|#FFFFFFF2|#C8CED8F2|#333333AA",
+			textColor  = "#10141E",
+			transition = "ColorTint",
 		},
 		-- Clear All History: a brighter, more striking gold than "caution" (it wipes everything)
 		cautionStrong = {
@@ -970,7 +977,7 @@
 		-- Name tab on slots WITH a picture (#98): a small rounded, solid tab right UNDER the picture,
 		-- using the frame below it plus a little of the gap under the slot (never over the art).
 		-- Its top edge meets the picture's bottom edge.
-		hudStripH = 7,  hudStripFont = 6,  hudStripChars = 11,   -- HUD: frame 4 + 3 of the 3px row gap (5 was unreadable)
+		hudStripH = 8,  hudStripFont = 7,  hudStripChars = 11, hudStripDrop = 1,   -- HUD: 1px under the picture, then 8 tall (frame 4 + 5px row gap), bold
 		ouiStripH = 16, ouiStripFont = 12, ouiStripChars = 12,   -- OUI: frame 9 + 7 of the (wider) row gap
 		-- OUI history rows: gap between the two rows (was 2), widened so the tabs have room.
 		-- The grid, edit overlay and ‹ › arrows grow by the extra; the ⚙ button below moves down by it.
@@ -988,13 +995,14 @@
 	-- The tab's XML (built hidden/empty when there's no picture; refreshHistorySlots fills it).
 	-- A non-clickable Button rather than a Panel, purely for TTS's rounded corners (see roundedPanelBg).
 	-- inset = the frame width below the picture; the tab's top sits there, so its bottom pokes out under the slot.
-	function HIST_LOOK.stripXml(id, entry, w, h, font, chars, inset)
+	-- bold: HUD yes (reads better that small), OUI no. drop: px of gap between the picture and the tab.
+	function HIST_LOOK.stripXml(id, entry, w, h, font, chars, inset, bold, drop)
 		local name = HIST_LOOK.stripName(entry, chars)
 		local c = HIST_LOOK.stripColor
-		return '      <Button id="' .. id .. '_name" rectAlignment="LowerCenter" offsetXY="0 ' .. (inset - h) .. '"'
+		return '      <Button id="' .. id .. '_name" rectAlignment="LowerCenter" offsetXY="0 ' .. (inset - h - (drop or 0)) .. '"'
 			.. ' width="' .. w .. '" height="' .. h .. '" colors="' .. c .. '|' .. c .. '|' .. c .. '|' .. c .. '"'
 			.. ' roundEdges="true" raycastTarget="false" active="' .. (name ~= "" and "True" or "False") .. '">'
-			.. '<Text id="' .. id .. '_nameTxt" text="' .. xmlAttrText(name) .. '" fontSize="' .. font .. '" fontStyle="Bold"'
+			.. '<Text id="' .. id .. '_nameTxt" text="' .. xmlAttrText(name) .. '" fontSize="' .. font .. '" fontStyle="' .. (bold and "Bold" or "Normal") .. '"'
 			.. ' color="#FFFFFF" width="' .. w .. '" height="' .. h .. '" alignment="MiddleCenter" verticalOverflow="Overflow" raycastTarget="false" />'
 			.. '</Button>'
 	end
@@ -1164,8 +1172,34 @@
 		refreshPreviewIndicator()
 	end
 
-	-- A history slot was clicked: right-click (value "-2") renames, any other click picks the template
+	-- ── Move history (#104): Move History, click a slot (white ring), click another: they swap ──
+	-- Picking works across pages (picked is the tokenHistory index). Picking an empty slot sends the
+	-- picked entry to the end, since history can't have gaps. Move and Delete never run together.
+	-- start/stop/click are filled in after setHistoryEditMode (they use it).
+	local MOVE = {
+		on     = false,
+		picked = nil,        -- tokenHistory index of the picked entry, or nil
+		ring   = "#FFFFFF",  -- frame around the picked slot
+		area   = "#FDD835",  -- frame around the whole history grid while Move is on ("act here")
+	}
+
+	-- The yellow "act here" frame around the history grid: hollow, so nothing between the slots changes.
+	-- A see-through Panel with 4 strips along its edges, so the corners are square: a hollow ROUNDED frame
+	-- needs a ring image (images pass). Tried and dropped: an outline (a Button tints its own outline) and
+	-- a filled rounded shape behind the grid (filled the gaps between slots). attrs = id / position / active.
+	function MOVE.areaXml(attrs, w, h, t)
+		local function bar(align, bw, bh)
+			return '<Panel rectAlignment="' .. align .. '" width="' .. bw .. '" height="' .. bh .. '" color="' .. MOVE.area .. '" raycastTarget="false" />'
+		end
+		return '<Panel ' .. attrs .. ' width="' .. w .. '" height="' .. h .. '" color="#00000000" raycastTarget="false">'
+			.. bar("UpperCenter", w, t) .. bar("LowerCenter", w, t) .. bar("MiddleLeft", t, h) .. bar("MiddleRight", t, h)
+			.. '</Panel>'
+	end
+
+	-- A history slot was clicked: in Move mode it picks/swaps; otherwise right-click (value "-2")
+	-- renames and any other click picks the template
 	local function historyClick(slot, value)
+		if MOVE.on then MOVE.click(slot) return end
 		if tostring(value) == "-2" then openRename(slot) else activateHistoryEntry(slot) end
 	end
 
@@ -1222,7 +1256,8 @@
 		local style = on and EDIT_ON_STYLE or EDIT_OFF_STYLE
 		-- Edit History is double height normally; in edit mode it drops to one row and Clear History
 		-- takes the other half (the layout gives the space to whichever buttons are showing)
-		setButtonLook(self.UI, "editHistoryBtn", on and "←Stop Editing History" or "Edit History", style)
+		if on and MOVE.on then MOVE.stop() end   -- Delete and Move never run together
+		setButtonLook(self.UI, "editHistoryBtn", on and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL, style)
 		setPressedExtras(self.UI, "editHistoryBtn", on, 2)   -- "Stop Editing" is pressed in
 		self.UI.setAttribute("editHistoryBtn", "preferredHeight", on and HIST_LOOK.editH.ouiShort or HIST_LOOK.editH.ouiTall)
 		self.UI.setAttribute("clearHistoryBtn", "active", on and "True" or "False")
@@ -1231,14 +1266,63 @@
 		setPressedExtras(UI, "TokenApplier_hud_editHistoryBtn", on, 1)
 		UI.setAttribute("TokenApplier_hud_editHistoryBtn", "preferredHeight", on and HIST_LOOK.editH.hudShort or HIST_LOOK.editH.hudTall)
 		UI.setAttribute("TokenApplier_hud_clearHistoryBtn", "active", on and "True" or "False")
-		-- Row 3 placeholder steps aside for Clear All History in edit mode (show/hide: Panel first-show quirk)
-		if on then self.UI.hide("historyRow3") ; UI.hide("TokenApplier_hud_historyRow3")
-		else       self.UI.show("historyRow3") ; UI.show("TokenApplier_hud_historyRow3") end
+		-- Row 3: Move History steps aside for Clear All History in delete mode
+		if on then self.UI.hide("moveHistoryBtn") ; UI.hide("TokenApplier_hud_moveHistoryBtn")
+		else       self.UI.show("moveHistoryBtn") ; UI.show("TokenApplier_hud_moveHistoryBtn") end
 	end
 
 	-- HistoryEdit button
 	function btn_toggleHistoryEdit(_, _)
 		setHistoryEditMode(not historyEditMode)
+	end
+
+	-- Move History button look on both UIs: pressed while Move mode is on
+	local function setMoveButtonLook(on)
+		local style = on and "pressed" or "settingsItem"
+		setButtonLook(self.UI, "moveHistoryBtn", MOVE_LABEL[on], style)
+		setPressedExtras(self.UI, "moveHistoryBtn", on, 2)
+		setHudButtonLook("TokenApplier_hud_moveHistoryBtn", MOVE_LABEL[on], style)
+		setPressedExtras(UI, "TokenApplier_hud_moveHistoryBtn", on, 1)
+	end
+
+	function MOVE.start()
+		if historyEditMode then setHistoryEditMode(false) end   -- Delete and Move never run together
+		closeRename()                                             -- its slot index could shift under it
+		MOVE.on, MOVE.picked = true, nil
+		setMoveButtonLook(true)
+		self.UI.show("moveFrame") ; UI.show("TokenApplier_hud_moveFrame")   -- yellow "act here" frame
+		refreshHistorySlots()
+	end
+
+	function MOVE.stop()
+		MOVE.on, MOVE.picked = false, nil
+		setMoveButtonLook(false)
+		self.UI.hide("moveFrame") ; UI.hide("TokenApplier_hud_moveFrame")
+		refreshHistorySlots()   -- clears the picked frame
+	end
+
+	function MOVE.click(slot)
+		local index = histIndex(slot)
+		if not MOVE.picked then
+			if tokenHistory[index] then MOVE.picked = index end   -- nothing to pick in an empty slot
+		elseif MOVE.picked == index then
+			MOVE.picked = nil                                    -- same slot again: un-pick
+		else
+			local entry = tokenHistory[MOVE.picked]
+			if tokenHistory[index] then
+				tokenHistory[MOVE.picked], tokenHistory[index] = tokenHistory[index], entry   -- swap
+			else
+				table.remove(tokenHistory, MOVE.picked)          -- empty slot: send it to the end
+				table.insert(tokenHistory, entry)
+			end
+			MOVE.picked = nil
+			saveState()
+		end
+		refreshHistorySlots()
+	end
+
+	function btn_toggleHistoryMove(_, _)
+		if MOVE.on then MOVE.stop() else MOVE.start() end
 	end
 	
 	
@@ -1583,6 +1667,7 @@
 		settingsOpen = not settingsOpen
 		if not settingsOpen then
 			setHistoryEditMode(false)   -- closing settings also leaves edit mode (hides overlays + Clear History)
+			if MOVE.on then MOVE.stop() end   -- ... and Move mode
 		end
 		if settingsOpen then
 			self.UI.show("settingsPanel")
@@ -1621,18 +1706,40 @@
 	
 	-- Debug toggle (#99): shows/hides the debug buttons inside settings on both UIs. Saved, so it can
 	-- stay on while testing. Rebuilds like the other toggles (live text-colour changes don't stick).
+	-- Updates in place, no rebuild: a full rebuild of both UIs got slow as the HUD grew (felt as lag)
 	function btn_toggleDebug(_, _)
 		debugOpen = not debugOpen
 		saveState()
-		rebuildXML()
-		rebuildHUD()
+		local style = debugOpen and "pressed" or "debug"
+		local tip   = debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons"
+		-- Object: the debug panel (only while settings are open)
+		if settingsOpen then
+			if debugOpen then self.UI.show("debugSettingsPanel") else self.UI.hide("debugSettingsPanel") end
+		end
+		setButtonLook(self.UI, "debugToggleBtn", nil, style)
+		setPressedExtras(self.UI, "debugToggleBtn", debugOpen, 2)
+		self.UI.setAttribute("debugToggleBtn", "tooltip", tip)
+		-- HUD: the debug buttons (syncHudSettings; while minimised, restore catches up), then the button look
+		if hudVisible then syncHudSettings() end
+		setHudButtonLook("TokenApplier_hud_debugToggle", nil, style)
+		setPressedExtras(UI, "TokenApplier_hud_debugToggle", debugOpen, 1)
+		UI.setAttribute("TokenApplier_hud_debugToggle", "tooltip", tip)
 	end
 
 	-- Customise panel (1.4.3): opened from settings. Rebuilds like the other toggles.
+	-- Updates in place, no rebuild (like Debug above)
 	function btn_toggleCustomise(_, _)
 		CUSTOM.open = not CUSTOM.open
-		rebuildXML()
-		rebuildHUD()
+		local style = CUSTOM.open and "pressed" or "settingsItem"
+		-- Object: the customise panel
+		if CUSTOM.open then self.UI.show("customisePanel") else self.UI.hide("customisePanel") end
+		setButtonLook(self.UI, "customiseToggleBtn", nil, style)
+		setPressedExtras(self.UI, "customiseToggleBtn", CUSTOM.open, 2)
+		-- HUD: the customise panel (syncHudSettings), the settings backdrop's height, the button look
+		if hudVisible then syncHudSettings() end
+		if CUSTOM.bgOn() then UI.setAttribute("TokenApplier_hud_settingsBg", "height", CUSTOM.settingsBgH(CUSTOM.open)) end
+		setHudButtonLook("TokenApplier_hud_customiseToggle", nil, style)
+		setPressedExtras(UI, "TokenApplier_hud_customiseToggle", CUSTOM.open, 1)
 	end
 
 	-- Selection colour (#102): a new colour rebuilds both UIs in it (every build reads BTN_STYLE)
@@ -1847,12 +1954,16 @@
 			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
 			local style    = isActive and "histSelected" or (entry and "historySlot" or "ghost")
+			-- Move History (#104): the picked slot turns white. The frame around its picture IS the slot,
+			-- so that's a white, rounded ring (an outline can't do it: a Button tints its own outline)
+			local picked   = MOVE.on and MOVE.picked == histIndex(i)
+			if picked then style = "movePicked" end
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
 			local txtLabel = ouiHistLabel(entry)
-			local txtColor = entry and "#FFFFFF" or "#404040"
+			local txtColor = picked and BTN_STYLE.movePicked.textColor or (entry and "#FFFFFF" or "#404040")
 			local hudLabel = hudHistLabel(entry)
-			local hudColor = entry and "#FFFFFF" or "#303030"
+			local hudColor = picked and BTN_STYLE.movePicked.textColor or (entry and "#FFFFFF" or "#303030")
 			local sc       = entry and sizeClass(entry.byteSize)
 
 			local tooltipText = historyTooltip(entry)
@@ -1879,6 +1990,7 @@
 			UI.setAttribute("TokenApplier_hud_hist_" .. i,              "colors",    BTN_STYLE[style].colors)
 			UI.setAttribute("TokenApplier_hud_hist_" .. i,              "textColor", BTN_STYLE[style].textColor)
 			UI.setAttribute("TokenApplier_hud_hist_" .. i,              "tooltip",   tooltipText)
+
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_img",    "image",     imgURL)
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_img",    "active",    hasImage and "True" or "False")
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_txt",    "text",      hudLabel)
@@ -1890,9 +2002,10 @@
 			local hudStrip = HIST_LOOK.stripName(entry, HIST_LOOK.hudStripChars)
 			-- show()/hide(), not setAttribute "active": a Panel built hidden can ignore its first setAttribute show
 			self.UI.setAttribute("histBtn" .. i .. "_nameTxt", "text", ouiStrip)
-			if ouiStrip ~= "" then self.UI.show("histBtn" .. i .. "_name") else self.UI.hide("histBtn" .. i .. "_name") end
+			-- Picked slot (Move History): its name plate hides so the white ring shows all round
+			if ouiStrip ~= "" and not picked then self.UI.show("histBtn" .. i .. "_name") else self.UI.hide("histBtn" .. i .. "_name") end
 			UI.setAttribute("TokenApplier_hud_hist_" .. i .. "_nameTxt", "text", hudStrip)
-			if hudStrip ~= "" then UI.show("TokenApplier_hud_hist_" .. i .. "_name") else UI.hide("TokenApplier_hud_hist_" .. i .. "_name") end
+			if hudStrip ~= "" and not picked then UI.show("TokenApplier_hud_hist_" .. i .. "_name") else UI.hide("TokenApplier_hud_hist_" .. i .. "_name") end
 
 			-- OUI delete overlay slot
 			local delEntry = tokenHistory[histIndex(i)]
@@ -1974,6 +2087,10 @@
 		table.insert(lines, '    <Text id="previewText" text="' .. previewText .. '" fontSize="22" color="#FFFFFF" fontStyle="Bold" alignment="MiddleCenter" width="140" height="140" />')
 		table.insert(lines, '  </Panel>')
 		table.insert(lines, '</Panel>')
+
+	    -- Move History (#104): yellow frame around the history grid while Move is on
+	    table.insert(lines, MOVE.areaXml('id="moveFrame" position="0 ' .. (-380 - (HIST_LOOK.ouiRowGap - 2) / 2) .. ' -24" rotation="0 0 0" active="' .. (MOVE.on and "True" or "False") .. '"',
+	        456, 228 + (HIST_LOOK.ouiRowGap - 2) + 8, 4))
 
 	    -- ── History grid ──
 	    table.insert(lines, '<Panel id="historyPanel"')
@@ -2116,13 +2233,15 @@
 		table.insert(lines, '    </HorizontalLayout>')
 		-- Edit History: double height, filling Clear History's space; splits into two rows in edit mode (setHistoryEditMode)
 		local eStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
-		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(eStyle) .. ' fontSize="20" preferredWidth="214" preferredHeight="' .. (historyEditMode and HIST_LOOK.editH.ouiShort or HIST_LOOK.editH.ouiTall) .. '"><Text id="editHistoryBtn_text" offsetXY="0 ' .. (historyEditMode and -2 or 0) .. '" text="' .. (historyEditMode and "←Stop Editing History" or "Edit History") .. '" color="' .. BTN_STYLE[eStyle].textColor .. '" fontSize="20" /></Button>')
+		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Delete History: click slots to remove them" ' .. btnStyle(eStyle) .. ' fontSize="20" preferredWidth="214" preferredHeight="' .. (historyEditMode and HIST_LOOK.editH.ouiShort or HIST_LOOK.editH.ouiTall) .. '"><Text id="editHistoryBtn_text" offsetXY="0 ' .. (historyEditMode and -2 or 0) .. '" text="' .. (historyEditMode and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL) .. '" color="' .. BTN_STYLE[eStyle].textColor .. '" fontSize="20" /></Button>')
 		-- Clear History: last, and only shown while Edit History is live. Two-click confirm (see btn_clearHistory)
 		table.insert(lines, '    <Button id="clearHistoryBtn" onClick="btn_clearHistory" tooltip="Clear all token history and reset template (click twice to confirm)" ' .. btnStyle(CLEAR_HISTORY_STYLE) .. ' fontSize="20" preferredWidth="214" preferredHeight="44" active="' .. (historyEditMode and "True" or "False") .. '"><Text id="clearHistoryBtn_text" text="' .. CLEAR_HISTORY_LABEL .. '" color="' .. BTN_STYLE[CLEAR_HISTORY_STYLE].textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="10" resizeTextMaxSize="20" /></Button>')
-		-- Row 3 placeholder: invisible, holds the empty row while NOT editing (Clear All History takes the row
-		-- in edit mode), so the layout can't stretch the scale row into it. Becomes Move History later (#104).
-		table.insert(lines, '    <Panel id="historyRow3" color="#00000000" raycastTarget="false" preferredWidth="214" preferredHeight="' .. HIST_LOOK.editH.ouiShort .. '"'
-			.. ' active="' .. (historyEditMode and "False" or "True") .. '" />')
+		-- Row 3: Move History (#104). Steps aside for Clear All History in delete mode (setHistoryEditMode).
+		local mvStyle = MOVE.on and "pressed" or "settingsItem"
+		table.insert(lines, '    <Button id="moveHistoryBtn" onClick="btn_toggleHistoryMove" ' .. btnStyle(mvStyle)
+			.. ' fontSize="20" preferredWidth="214" preferredHeight="' .. HIST_LOOK.editH.ouiShort .. '" active="' .. (historyEditMode and "False" or "True") .. '"'
+			.. ' tooltip="Move History: click a slot, then another, to swap them">'
+			.. '<Text id="moveHistoryBtn_text" offsetXY="0 ' .. (MOVE.on and -2 or 0) .. '" text="' .. MOVE_LABEL[MOVE.on] .. '" color="' .. BTN_STYLE[mvStyle].textColor .. '" fontSize="20" /></Button>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 
@@ -2232,7 +2351,7 @@
 		table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '"')
 		table.insert(lines, '  ' .. btnStyle(dbgStyle))
 		table.insert(lines, '  position="-294 -532 -25" rotation="0 0 0" width="116" height="40" fontSize="18">')
-		table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[dbgStyle].textColor .. '" offsetXY="0 ' .. (debugOpen and -2 or 0) .. '" fontSize="18" width="116" height="40" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  <Text id="debugToggleBtn_text" text="Debug" color="' .. BTN_STYLE[dbgStyle].textColor .. '" offsetXY="0 ' .. (debugOpen and -2 or 0) .. '" fontSize="18" width="116" height="40" alignment="MiddleCenter" /></Button>')
 
 		table.insert(lines, '<Panel id="debugSettingsPanel"')
 		table.insert(lines, '  active="' .. ((settingsOpen and debugOpen) and "True" or "False") .. '"')
@@ -2494,12 +2613,16 @@
 	    table.insert(lines, CUSTOM.bgXml("TokenApplier_hud_settingsBg", "LowerCenter", -192, bgBase,
 	        120 + 2 * BGM, CUSTOM.settingsBgH(CUSTOM.open), 'active="' .. (settingsOpen and "True" or "False") .. '"'))
 
+	    -- Move History (#104): yellow frame around the history grid (x -112.5..112.5, y 29..142) while Move is on
+	    table.insert(lines, MOVE.areaXml('id="TokenApplier_hud_moveFrame" rectAlignment="LowerCenter" offsetXY="0 25" active="' .. (MOVE.on and "True" or "False") .. '"',
+	        233, 121, 2))
+
 	    -- ── CORE panel ──
 	    -- Contains: Add Token, History Grid (2×4), Minimize footer
 	    table.insert(lines, '<Panel id="TokenApplier_hud_core"')
 		table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="0 27"')
-		table.insert(lines, '  width="233" height="166"')
+		table.insert(lines, '  offsetXY="0 25"')
+		table.insert(lines, '  width="233" height="168"')
 		table.insert(lines, '  color="#00000000"') -- was CC
 		table.insert(lines, '  padding="4 4 4 4">')
 
@@ -2517,10 +2640,10 @@
 
 		-- History grid (2 rows × 4 cols)
 		table.insert(lines, '    <GridLayout id="TokenApplier_hud_grid"')
-		table.insert(lines, '      cellSize="54 54" spacing="3 3"')
+		table.insert(lines, '      cellSize="54 54" spacing="3 5"')
 		table.insert(lines, '      startCorner="UpperLeft" startAxis="Horizontal"')
 		table.insert(lines, '      childAlignment="UpperLeft"')
-		table.insert(lines, '      width="225" height="111">')
+		table.insert(lines, '      width="225" height="113">')
 
 	    for i = 1, HISTORY_SLOTS do
 			local entry    = tokenHistory[histIndex(i)]
@@ -2553,8 +2676,8 @@
 			table.insert(lines, '        alignment="MiddleCenter"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
 			-- Name strip (#98), then the size badge on top of it
-			table.insert(lines, HIST_LOOK.stripXml('TokenApplier_hud_hist_' .. i, entry, HIST_LOOK.hudImg, HIST_LOOK.hudStripH,
-				HIST_LOOK.hudStripFont, HIST_LOOK.hudStripChars, (54 - HIST_LOOK.hudImg) / 2))
+			table.insert(lines, HIST_LOOK.stripXml('TokenApplier_hud_hist_' .. i, entry, HIST_LOOK.hudImg + 4, HIST_LOOK.hudStripH,   -- HUD plate 2px wider each side than the picture
+				HIST_LOOK.hudStripFont, HIST_LOOK.hudStripChars, (54 - HIST_LOOK.hudImg) / 2, true, HIST_LOOK.hudStripDrop))
 			table.insert(lines, sizeBadgeXml('TokenApplier_hud_hist_' .. i .. '_warn', sc, 16, 10))
 			table.insert(lines, '    </Button>')
 		end
@@ -2585,10 +2708,10 @@
 		table.insert(lines, '<Panel id="TokenApplier_hud_deleteOverlayPanel"')
 		table.insert(lines, '  active="' .. (historyEditMode and "True" or "False") .. '"')	-- survives a rebuild mid-edit
 		table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="0 31"')  --attempt to move the location of this panel
-		table.insert(lines, '  width="225" height="111"')
+		table.insert(lines, '  offsetXY="0 29"')  --attempt to move the location of this panel
+		table.insert(lines, '  width="225" height="113"')
 		table.insert(lines, '  color="#00000000">')
-		table.insert(lines, '  <GridLayout cellSize="54 54" spacing="3 3" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="225" height="111">')
+		table.insert(lines, '  <GridLayout cellSize="54 54" spacing="3 5" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" width="225" height="113">')
 		for i = 1, HISTORY_SLOTS do
 			local entry = tokenHistory[histIndex(i)]
 			local g = guid
@@ -2614,7 +2737,7 @@
 		-- Dots sit inside the bottom edge of Add Token (y 145..189) — there's no gap above the grid.
 		local hudPages = historyPageCount()
 		local function hudArrow(id, onClick, tooltip, label, x, on)
-			return '<Button id="' .. id .. '" rectAlignment="LowerCenter" offsetXY="' .. x .. ' 31" width="10" height="111"'
+			return '<Button id="' .. id .. '" rectAlignment="LowerCenter" offsetXY="' .. x .. ' 29" width="10" height="113"'
 				.. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle("historyNav") .. ' tooltip="' .. tooltip .. '"'
 				.. ' active="' .. (on and "True" or "False") .. '">'
 				.. '<Text text="' .. label .. '" color="' .. BTN_STYLE.historyNav.textColor .. '" fontSize="12" fontStyle="Bold" alignment="MiddleCenter" /></Button>'
@@ -2632,11 +2755,11 @@
 
 	    -- ── Footer strip: [⚙][—— minimise ——] ──
 	    -- Together they span the history grid's width (x -112.5..112.5) so they line up with it:
-	    --   ⚙ x -112.5..-86.5, 2px gap, minimise x -84.5..112.5
+	    --   ⚙ x -112.5..-92.5, 2px gap, minimise x -90.5..112.5; both 20 tall (were 26: room for the history name tabs)
 	    table.insert(lines, '<Button id="TokenApplier_hud_minimize"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="14 2"')
-	    table.insert(lines, '  width="197" height="26"')
+	    table.insert(lines, '  offsetXY="11 2"')
+	    table.insert(lines, '  width="203" height="20"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
 	    table.insert(lines, '  ' .. btnStyle("lookNeutral") .. CUSTOM.rim())   -- rim while a backdrop is on (#100)
 	    table.insert(lines, '  fontSize="9"')   -- HUD standard button text size
@@ -2646,14 +2769,14 @@
 	    -- ── Settings button (1:1 square, left end of the footer strip) ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_settings"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-99.5 2"')
-	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  offsetXY="-102.5 2"')
+	    table.insert(lines, '  width="20" height="20"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleSettings"')
 	    table.insert(lines, '  ' .. btnStyle(settingsOpen and HUD_SETTINGS_OPEN_STYLE or HUD_SETTINGS_CLOSED_STYLE))   -- 1.4.2 look test
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Settings"')
 		local ss = BTN_STYLE.settings
-		table.insert(lines, '  ><Text id="TokenApplier_hud_settings_text" text="⚙" color="' .. ss.textColor .. '" offsetXY="0 ' .. (settingsOpen and -1 or 0) .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '  ><Text id="TokenApplier_hud_settings_text" text="⚙" color="' .. ss.textColor .. '" offsetXY="0 ' .. (settingsOpen and -1 or 0) .. '" fontSize="8" width="20" height="20" horizontalOverflow="Overflow" verticalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 
 		-- HUD layout (offsets from TokenApplier_hud_root's bottom-centre; x = button centre, y = button bottom)
 		--   Token History panel   x -252..-132  y 31..146   (level with the history grid, y 31..142, beside it; gap holds the < arrow)
@@ -2728,7 +2851,7 @@
 	    table.insert(lines, '  hideAnimation="Shrink"')
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	table.insert(lines, '  offsetXY="-192 31"')   -- level with the history grid (bottom 31); the 2×2 HUD block sits above
+	table.insert(lines, '  offsetXY="-192 29"')   -- level with the history grid (bottom 29); the 2×2 HUD block sits above
 	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
 		table.insert(lines, '  color="#00000000">')   -- see-through: the rounded background below does the colour
 		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op(SETTINGS_PANEL_COLOR), CUSTOM.panelRimColor()))   -- 1.4.2 look test
@@ -2753,7 +2876,7 @@
 	    table.insert(lines, '    <Button id="TokenApplier_hud_editHistoryBtn" onClick="' .. g .. '/btn_toggleHistoryEdit"')
 	    table.insert(lines, '      ' .. btnStyle(heStyle))
 	    table.insert(lines, '      preferredWidth="112" preferredHeight="' .. (historyEditMode and HIST_LOOK.editH.hudShort or HIST_LOOK.editH.hudTall) .. '"')
-	    table.insert(lines, '      tooltip="Toggle delete mode on history slots">')
+	    table.insert(lines, '      tooltip="Delete History: click slots to remove them">')
 	    table.insert(lines, '      <Text id="TokenApplier_hud_editHistoryBtn_text" offsetXY="0 ' .. (historyEditMode and -1 or 0) .. '" text="' .. (historyEditMode and HUD_EDIT_ON_LABEL or HUD_EDIT_OFF_LABEL) .. '" color="' .. BTN_STYLE[heStyle].textColor .. '" fontSize="9" width="112" height="28" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 	    -- Clear History: last, only while Edit History is live; two-click confirm (see btn_clearHistory)
 	    table.insert(lines, '    <Button id="TokenApplier_hud_clearHistoryBtn" onClick="' .. g .. '/btn_clearHistory"')
@@ -2762,10 +2885,13 @@
 	    table.insert(lines, '      active="' .. (historyEditMode and "True" or "False") .. '"')
 	    table.insert(lines, '      tooltip="Clear all token history and reset template (click twice to confirm)">')
 	    table.insert(lines, '      <Text id="TokenApplier_hud_clearHistoryBtn_text" text="' .. HUD_CLEAR_LABEL .. '" color="' .. BTN_STYLE[CLEAR_HISTORY_STYLE].textColor .. '" fontSize="9" width="112" height="28" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
-	    -- Row 3 placeholder: invisible, holds the empty row while NOT editing (Clear All History takes the row
-	    -- in edit mode), so the layout can't stretch the scale row into it. Becomes Move History later (#104).
-	    table.insert(lines, '    <Panel id="TokenApplier_hud_historyRow3" color="#00000000" raycastTarget="false" preferredWidth="112" preferredHeight="' .. HIST_LOOK.editH.hudShort .. '"'
-	        .. ' active="' .. (historyEditMode and "False" or "True") .. '" />')
+	    -- Row 3: Move History (#104). Steps aside for Clear All History in delete mode (setHistoryEditMode).
+	    -- Built as "pressed" when Move mode is on (a rebuild keeps the mode).
+	    local mvStyle = MOVE.on and "pressed" or "settingsItem"
+	    table.insert(lines, '    <Button id="TokenApplier_hud_moveHistoryBtn" onClick="' .. g .. '/btn_toggleHistoryMove" ' .. btnStyle(mvStyle)
+	        .. ' preferredWidth="112" preferredHeight="' .. HIST_LOOK.editH.hudShort .. '" active="' .. (historyEditMode and "False" or "True") .. '"'
+	        .. ' tooltip="Move History: click a slot, then another, to swap them">')
+	    table.insert(lines, '      <Text id="TokenApplier_hud_moveHistoryBtn_text" offsetXY="0 ' .. (MOVE.on and -1 or 0) .. '" text="' .. MOVE_LABEL[MOVE.on] .. '" color="' .. BTN_STYLE[mvStyle].textColor .. '" fontSize="9" width="112" height="28" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 	    table.insert(lines, '  </VerticalLayout>')
 	    table.insert(lines, '</Panel><!--TokenApplier_hud_settingsPanel-->') -- end TokenApplier_hud_settingsPanel
 
@@ -2814,7 +2940,7 @@
 	    table.insert(lines, '  ' .. btnStyle(hDbgStyle))
 	    table.insert(lines, '  fontSize="9"')
 	    table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '">')
-	    table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[hDbgStyle].textColor .. '" offsetXY="0 ' .. (debugOpen and -1 or 0) .. '" fontSize="9" width="42" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '  <Text id="TokenApplier_hud_debugToggle_text" text="Debug" color="' .. BTN_STYLE[hDbgStyle].textColor .. '" offsetXY="0 ' .. (debugOpen and -1 or 0) .. '" fontSize="9" width="42" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 
 	    -- ── Customise (1.4.3): button right above the Token History panel; its panel opens above that ──
 	    --   Customise button  x -252..-132  y 210..236        Customise panel  x -252..-132  y 240..356 (CUSTOM.hudPanelH)
@@ -2941,7 +3067,7 @@
 		table.insert(lines, hmbtn(nil,                  "btn_rotate",       "Rotate 180°",       "dynMod",    "18", "↻",    2, 2))
 
 		-- Divider between the modifier grid and the Line up strip (#96). Not clickable.
-		local LINEUP_H = 26   -- same height as the minimise strip
+		local LINEUP_H = 20   -- same height as the minimise strip
 		-- A dark 1px line right under the light one acts as its shadow, so it shows on light and dark tables
 		-- (Panels ignore the shadow attribute, like they ignore outline).
 		table.insert(lines, '  <Panel width="' .. HUD_DYN.gridW .. '" height="1" color="#8A96B0CC" raycastTarget="false"'
