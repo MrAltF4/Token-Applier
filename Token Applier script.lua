@@ -118,6 +118,7 @@
 	local historyPage 			= 0      -- which page of history the 8 slots show (0 = newest)
 	local uiOpaque 				= false  -- Opaque mode: all OUI + HUD backgrounds fully solid (saved)
 	local hudOff 				= false  -- HUD: OFF = never touch the shared screen UI at all, OUI only (saved)
+	local debugOpen 			= false  -- Debug toggle (#99): shows the debug buttons inside settings (saved)
 
 -- ──────────────────────────────────────────────────────────────
 --  FORWARD DECLARATIONS
@@ -547,6 +548,7 @@
 				imageCheck          = imageCheck,
 				uiOpaque            = uiOpaque,
 				hudOff              = hudOff,
+				debugOpen           = debugOpen,
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -585,6 +587,7 @@
 		if type(data.imageCheck) == "table" then imageCheck = data.imageCheck end   -- before history prep, which reads it
 		if type(data.uiOpaque) == "boolean" then uiOpaque = data.uiOpaque end
 		if type(data.hudOff) == "boolean" then hudOff = data.hudOff end
+		if type(data.debugOpen) == "boolean" then debugOpen = data.debugOpen end
 		-- Upgrade history from older saves (adds size info, name-only display)
 		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
@@ -1111,15 +1114,18 @@
 	-- instant = true: hide WITHOUT the Shrink animation (setAttribute "active"). Used on restore while
 	-- the HUD is still hidden, so a panel left "open" is gone before anyone sees it shrink away.
 	local function syncHudSettings(instant)
-		local ids = { "TokenApplier_hud_settingsPanel", "TokenApplier_hud_off", "TokenApplier_hud_restore_tokens",
-			"TokenApplier_hud_find_tokens", "TokenApplier_hud_debug_ids", "TokenApplier_hud_placeBtn",
-			"TokenApplier_hud_dragToggleBtn", "TokenApplier_hud_opacityBtn", "TokenApplier_hud_templateVis" }
+		local ids = { "TokenApplier_hud_settingsPanel", "TokenApplier_hud_off", "TokenApplier_hud_placeBtn",
+			"TokenApplier_hud_dragToggleBtn", "TokenApplier_hud_opacityBtn", "TokenApplier_hud_templateVis",
+			"TokenApplier_hud_debugToggle" }
+		-- Debug buttons: only while settings AND the Debug toggle are on (#99)
+		local debugIds = { "TokenApplier_hud_restore_tokens", "TokenApplier_hud_find_tokens", "TokenApplier_hud_debug_ids" }
 		local function setShown(id, on)
 			if on then UI.show(id)
 			elseif instant then UI.setAttribute(id, "active", "False")
 			else UI.hide(id) end
 		end
 		for _, id in ipairs(ids) do setShown(id, settingsOpen) end
+		for _, id in ipairs(debugIds) do setShown(id, settingsOpen and debugOpen) end
 		setShown("TokenApplier_hud_deleteOverlayPanel", historyEditMode)
 		UI.setAttribute("TokenApplier_hud_clearHistoryBtn", "active", historyEditMode and "True" or "False")
 		UI.setAttribute("TokenApplier_hud_settings", "colors",
@@ -1264,12 +1270,14 @@
 			self.UI.show("settingsPanel")
 			self.UI.show("clearHistoryPanel")
 			self.UI.show("templateSettingsPanel")
-			self.UI.show("debugSettingsPanel")
+			self.UI.show("debugToggleBtn")
+			if debugOpen then self.UI.show("debugSettingsPanel") end   -- debug buttons only with the Debug toggle on (#99)
 		else
 			self.UI.hide("settingsPanel")
 			self.UI.hide("clearHistoryPanel")
 			self.UI.hide("templateSettingsPanel")
-			self.UI.hide("debugSettingsPanel")
+			self.UI.hide("debugToggleBtn")
+			if debugOpen then self.UI.hide("debugSettingsPanel") end
 		end
 		-- HUD side (also recolours the HUD ⚙). While minimised, restore catches it up instead.
 		if hudVisible then syncHudSettings() end
@@ -1280,6 +1288,15 @@
 		-- (No setAttribute "active" on panels here: it skips the Grow/Shrink animation that show()/hide() play)
 	end
 	
+	-- Debug toggle (#99): shows/hides the debug buttons inside settings on both UIs. Saved, so it can
+	-- stay on while testing. Rebuilds like the other toggles (live text-colour changes don't stick).
+	function btn_toggleDebug(_, _)
+		debugOpen = not debugOpen
+		saveState()
+		rebuildXML()
+		rebuildHUD()
+	end
+
 	-- SetTemplate button toggle
 	function btn_toggleSetTemplate(_, _)
 		hideSetTemplate = not hideSetTemplate
@@ -1676,7 +1693,7 @@
 		--   Token Creation     x -684..-468  y -266..-426
 		--   Token History      x -461..-239  y -266..-438
 		--   HUD                x -684..-236  y -446..-504
-		--   Debug              x -684..-236  y -512..-588   (last thing the user sees)
+		--   Debug panel        x -684..-356  y -512..-588   (only with the Debug toggle on; toggle x -352..-236, #99)
 		-- Each panel's centre = top - height/2, so changing a height keeps its top edge in place
 		-- only if you also update its position Y.
 
@@ -1772,22 +1789,32 @@
 		table.insert(lines, '  </HorizontalLayout>')
 		table.insert(lines, '</Panel>')
 
-		-- ── Debug Settings panel (bottom; grey so it doesn't draw the eye) ──
-		table.insert(lines, '<Panel id="debugSettingsPanel"')
+		-- ── Debug toggle + Debug Settings panel (bottom; grey so it doesn't draw the eye) (#99) ──
+		-- Toggle: right end of the bottom row, its right edge in line with the Token History panel (x -236).
+		-- Panel (only while the toggle is on): fills the rest of the row to the left, x -684..-356.
+		local dbgStyle = debugOpen and "toggleOn" or "debug"
+		table.insert(lines, '<Button id="debugToggleBtn" onClick="btn_toggleDebug"')
 		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+		table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '"')
+		table.insert(lines, '  ' .. btnStyle(dbgStyle))
+		table.insert(lines, '  position="-294 -532 -25" rotation="0 0 0" width="116" height="40" fontSize="18">')
+		table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[dbgStyle].textColor .. '" fontSize="18" width="116" height="40" alignment="MiddleCenter" /></Button>')
+
+		table.insert(lines, '<Panel id="debugSettingsPanel"')
+		table.insert(lines, '  active="' .. ((settingsOpen and debugOpen) and "True" or "False") .. '"')
 		table.insert(lines, '  showAnimation="Grow"')
 		table.insert(lines, '  hideAnimation="Shrink"')
 		table.insert(lines, '  animationDuration="0.1"')
-		table.insert(lines, '  position="-460 -550 -25"')
+		table.insert(lines, '  position="-520 -550 -25"')
 		table.insert(lines, '  rotation="0 0 0"')
-		table.insert(lines, '  width="448" height="76"') 	-- title 20 + 1 row × 44 + 1 gap × 4 + 8 padding
+		table.insert(lines, '  width="328" height="76"') 	-- title 20 + 1 row × 44 + 1 gap × 4 + 8 padding
 		table.insert(lines, '  color="' .. op("#1E1E1EF2") .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
-		table.insert(lines, '    <Text text="Debug Settings" color="' .. BTN_STYLE.debug.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="440" preferredHeight="20" />')
+		table.insert(lines, '    <Text text="Debug Settings" color="' .. BTN_STYLE.debug.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="320" preferredHeight="20" />')
 		table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" preferredHeight="44">')
-		table.insert(lines, '      <Button onClick="btn_restoreTokens" tooltip="Restore tokens after save/load if any are missing" ' .. btnStyle("debug") .. ' fontSize="18" preferredWidth="144" preferredHeight="44">↺ Restore</Button>')
-		table.insert(lines, '      <Button onClick="btn_debug" tooltip="Print current hover-token table to console" ' .. btnStyle("debug") .. ' fontSize="18" preferredWidth="144" preferredHeight="44">Debug IDs</Button>')
-		table.insert(lines, '      <Button onClick="btn_findTokens" tooltip="Find and adopt tokens left behind by a deleted or old Token Applier" ' .. btnStyle("debug") .. ' fontSize="18" preferredWidth="144" preferredHeight="44">Find Tokens</Button>')
+		table.insert(lines, '      <Button onClick="btn_restoreTokens" tooltip="Restore tokens after save/load if any are missing" ' .. btnStyle("debug") .. ' fontSize="16" preferredWidth="104" preferredHeight="44">↺ Restore</Button>')
+		table.insert(lines, '      <Button onClick="btn_debug" tooltip="Print current hover-token table to console" ' .. btnStyle("debug") .. ' fontSize="16" preferredWidth="104" preferredHeight="44">Debug IDs</Button>')
+		table.insert(lines, '      <Button onClick="btn_findTokens" tooltip="Find and adopt tokens left behind by a deleted or old Token Applier" ' .. btnStyle("debug") .. ' fontSize="16" preferredWidth="104" preferredHeight="44">Find Tokens</Button>')
 		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
@@ -2147,7 +2174,7 @@
 		-- HUD layout (offsets from TokenApplier_hud_root's bottom-centre; x = button centre, y = button bottom)
 		--   Token History panel   x -252..-132  y 91..206   (left of the history grid, which spans x -112..112; gap holds the < arrow)
 		--   HUD block (2×2)       x -252..-132  y 31..87    [HUD][Opaque] over [Place][Drag]   (#91 order)
-		--   Debug row             x -252..-166  y 2..28     [F][↺][ID]  (left edge lines up with Token History + HUD row); footer strip [⚙][minimise] x -112.5..112.5
+		--   Debug row             x -252..-132  y 2..28     [F][↺][ID] (22 wide, only with Debug on) [Debug] toggle x -174..-132 (#99); footer strip [⚙][minimise] x -112.5..112.5
 
 	    -- ── HUD block: HUD on/off, Opaque, Place HUD, HUD Drag (only while settings are open) ──
 	    -- 2×2 of EQUAL buttons with one font size: mixed sizes or widths look unfinished, and four
@@ -2255,10 +2282,10 @@
 
 	    -- ── Restore-Token(s) position button ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_restore_tokens"')
-	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  active="' .. ((settingsOpen and debugOpen) and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-209 2"')
-	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  offsetXY="-215 2"')
+	    table.insert(lines, '  width="22" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_restoreTokens"')
 	    table.insert(lines, '  ' .. btnStyle("debug"))
 	    table.insert(lines, '  fontSize="10"')
@@ -2267,10 +2294,10 @@
 
 	    -- ── Find Tokens button (adopt tokens from a deleted/old Applier) ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_find_tokens"')
-	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  active="' .. ((settingsOpen and debugOpen) and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-239 2"')
-	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  offsetXY="-241 2"')
+	    table.insert(lines, '  width="22" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_findTokens"')
 	    table.insert(lines, '  ' .. btnStyle("debug"))
 	    table.insert(lines, '  fontSize="10"')
@@ -2279,15 +2306,26 @@
 
 	    -- ── Debug IDs button (prints the hover-token table to the console) — in the slot the HUD button used ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_debug_ids"')
-	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  active="' .. ((settingsOpen and debugOpen) and "True" or "False") .. '"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-	    table.insert(lines, '  offsetXY="-179 2"')
-	    table.insert(lines, '  width="26" height="26"')
+	    table.insert(lines, '  offsetXY="-189 2"')
+	    table.insert(lines, '  width="22" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_debug"')
 	    table.insert(lines, '  ' .. btnStyle("debug"))
 	    table.insert(lines, '  fontSize="10"')
 	    table.insert(lines, '  tooltip="Debug IDs: print the hover-token table to the console"')
 	    table.insert(lines, '  >ID</Button>')
+
+	    -- ── Debug toggle (#99): right end of the bottom row, right edge in line with Token History (x -132) ──
+	    local hDbgStyle = debugOpen and "toggleOn" or "debug"
+	    table.insert(lines, '<Button id="TokenApplier_hud_debugToggle"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-153 2" width="42" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleDebug"')
+	    table.insert(lines, '  ' .. btnStyle(hDbgStyle))
+	    table.insert(lines, '  fontSize="9"')
+	    table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '">')
+	    table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[hDbgStyle].textColor .. '" fontSize="9" width="42" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
 
 	    -- ── Set Template button visibility toggle ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_templateVis"')
