@@ -2452,7 +2452,7 @@
 		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
 		table.insert(lines, '  tooltip="Customise: look and feel options (selection colour, ...)"')
 		table.insert(lines, '  ' .. btnStyle(cusStyle))
-		table.insert(lines, '  position="-576 -240 -25" rotation="0 0 0" width="216" height="36" fontSize="18">')
+		table.insert(lines, '  position="-576 -240 -20" rotation="0 0 0" width="216" height="36" fontSize="18">')
 		table.insert(lines, '  <Text id="customiseToggleBtn_text" text="Customise" color="' .. BTN_STYLE[cusStyle].textColor .. '" offsetXY="0 ' .. (CUSTOM.open and -2 or 0) .. '" fontSize="18" width="216" height="36" alignment="MiddleCenter" /></Button>')
 
 		table.insert(lines, '<Panel id="customisePanel"')
