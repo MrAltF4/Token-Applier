@@ -48,6 +48,19 @@
 	-- Settings groups (#90): grey, so standard settings don't draw the eye like yellow did
 	local SETTINGS_PANEL_COLOR = "#1C1F28F2"     -- background of the Token History / HUD groups
 	local SETTINGS_TITLE_COLOR = "#AFC1D8"       -- group titles ("Token History", "Token Creation")
+	-- Line up / Radial toggle (dynamic panel). The label names what a click switches TO, with a symbol.
+	-- One style for both states (same as the other dynamic buttons), so only the text ever changes live.
+	local LINEUP = {
+		style = "dynMod",
+		-- (⨀ doesn't draw in TTS's font; ⊙ and ○ both do, ⊙ chosen as it reads as a symbol, not a letter)
+		hud   = { [true] = "⊙ Radial",  [false] = "— Line up" },    -- key = the model is currently in line-up mode
+		oui   = { [true] = "⊙\nRadial", [false] = "—\nLine up" },   -- OUI button is a 60px square: symbol on top
+	}
+	-- Opaque toggle hover text, by current state (OUI + HUD); the toggle rebuilds both UIs, so it stays right
+	local OPAQUE_TOOLTIP = {
+		[true]  = "Opaque: ON. Click to make backgrounds see-through again (object + HUD)",
+		[false] = "Opaque: OFF. Click to make every background fully solid (object + HUD)",
+	}
 	local CLEAR_ARMED_STYLE   = "danger"         -- "Sure?" state: red
 	local HUD_CLEAR_LABEL     = "X Clear All History"     -- HUD wording for the same buttons
 	local HUD_EDIT_OFF_LABEL  = "Edit History"
@@ -145,7 +158,7 @@
 	        transition = "ColorTint",
 	    },
 	    deleteSlot = {     -- Edit History overlay on each slot: 40% so the token underneath shows through.
-	                       -- keepAlpha: Solid mode leaves it see-through (the overlay is useless solid)
+	                       -- keepAlpha: Opaque mode leaves it see-through (the overlay is useless solid)
 	        colors     = "#2B0D0D66|#5A1A1A99|#1F0A0A66|#333333AA",
 	        textColor  = "#FF6060",
 	        transition = "ColorTint",
@@ -176,41 +189,48 @@
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
-	    -- Dynamic panel modifier buttons
+	    -- ── Dynamic panel (1.4.2 look: navy bodies, rounded, no border; text colours keep their meaning) ──
+	    -- Modifier buttons (purple = move / flip / rotate / height)
 	    dynMod = {
-	        colors     = "#0D0D0DE6|#222222F2|#080808E6|#333333AA",
+	        colors     = "#1E2130E6|#2E3246E6|#161824E6|#333333AA",
 	        textColor  = "#CC99FF",
 	        transition = "ColorTint",
+	        round      = true,
 	    },
-	    -- Dynamic panel scale up
+	    -- Scale up / spread up (green text)
 	    dynGreenBtn = {
-	        colors     = "#0D0D0DE6|#1A2B1AE6|#080808E6|#333333AA",
+	        colors     = "#1E2130E6|#26402EE6|#161824E6|#333333AA",
 	        textColor  = "#80FF80",
 	        transition = "ColorTint",
+	        round      = true,
 	    },
-	    -- Dynamic panel scale down
+	    -- Scale down / spread down (red text)
 	    dynRedBtn = {
-	        colors     = "#0D0D0DE6|#2B1A1AE6|#080808E6|#333333AA",
+	        colors     = "#1E2130E6|#402A2EE6|#161824E6|#333333AA",
 	        textColor  = "#FF8080",
 	        transition = "ColorTint",
+	        round      = true,
 	    },
 	    -- Token name slot (unselected)
 	    dynSlot = {
-	        colors     = "#0D0D26E6|#141433F2|#08081AE6|#333333AA",
-	        textColor  = "#9999CC",
+	        colors     = "#1A1D2CE6|#2A2E42E6|#141622E6|#333333AA",
+	        textColor  = "#AFC1D8",
 	        transition = "ColorTint",
+	        round      = true,
 	    },
-	    -- Token name slot (selected)
+	    -- Token name slot (selected): same cyan as a selected history slot
 	    dynSlotSelected = {
-	        colors     = "#1A3366F2|#2244AAF2|#0F2244F2|#333333AA",
-	        textColor  = "#66CCFF",
-	        transition = "ColorTint",
-	    },
-	    -- Remove button
-	    dynRemove = {
-	        colors     = "#260D0DE6|#401A1AF2|#1A0808E6|#333333AA",
+	        colors     = "#15AFCCE6|#1DCEF0E6|#0F8099E6|#333333AA",
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
+	        round      = true,
+	    },
+	    -- ✕ remove button
+	    dynRemove = {
+	        colors     = "#3A1A20E6|#5A2630E6|#2A1016E6|#333333AA",
+	        textColor  = "#FFFFFF",
+	        transition = "ColorTint",
+	        round      = true,
 	    },
 	    hudAdd = {
 	        colors     = "#0D2B40F2|#1A5C8AF2|#0A1F2EF2|#333333AA",
@@ -261,17 +281,7 @@
 			textColor  = "#AAAAAA",
 			transition = "ColorTint",
 		},
-		--lineup and radial button style
-		lineUpOff = {
-			colors     = "#2B2B0DF2|#4A4A1AF2|#1F1F0AF2|#333333AA",
-			textColor  = "#FFFF44",
-			transition = "ColorTint",
-		},
-		lineUpOn = {
-			colors     = "#484716F2|#6B6B22F2|#303010F2|#333333AA",
-			textColor  = "#FFD700",
-			transition = "ColorTint",
-		},
+		-- (Line up / Radial now uses dynMod for both states, see LINEUP; the old yellow styles are gone)
 		-- ── 1.4.2 shared look (TEST on a few HUD buttons first, see btnStyle) ──
 		-- One navy palette like LCT's HUD. A style with an `outline` also gets a thin
 		-- lighter border and rounded edges (`round = true` gives rounded edges alone).
@@ -285,7 +295,7 @@
 			outline    = "#6DA8FF",
 		},
 		-- Borders only on the buttons that should stand out most. The quieter ones below have
-		-- no outline, so they can be see-through (B2 ≈ 70%; Solid mode turns them to FF).
+		-- no outline, so they can be see-through (B2 ≈ 70%; Opaque mode turns them to FF).
 		lookNeutral = {   -- everyday buttons (minimise, settings closed)
 			colors     = "#2A2A3AB2|#3A3A4CB2|#20202EB2|#333333AA",
 			textColor  = "#AFC1D8",
@@ -783,6 +793,27 @@
 		hudFont = 9,    -- was 14 (about 40% smaller)
 		ouiFont = 12,   -- was 20
 	}
+	-- ── HUD dynamic panel measurements (#96) ──
+	-- Shared by buildHUDXml and refreshDynamicPanelSlots (Remove All follows the token list).
+	local HUD_DYN = {
+		pad   = 8,
+		bw    = 40,    -- modifier button size (square)
+		gap   = 4,
+		sh    = 24,    -- token name row height
+		sw    = 200,   -- token name button width
+		sgap  = 4,     -- gap between token rows
+		remH  = 20,    -- Remove All bar height (short and wide, under the names)
+	}
+	HUD_DYN.rw = HUD_DYN.sh                     -- ✕ buttons: square, same height as a name row
+	HUD_DYN.gridW = 4 * HUD_DYN.bw + 3 * HUD_DYN.gap                        -- modifier grid width (172)
+	HUD_DYN.slotX = HUD_DYN.pad + 4 * (HUD_DYN.bw + HUD_DYN.gap) + HUD_DYN.gap -- left edge of the token list
+	HUD_DYN.listW = HUD_DYN.sw + HUD_DYN.gap + HUD_DYN.rw                  -- names + ✕ (Remove All spans this)
+	HUD_DYN.panelH = HUD_DYN.pad + 3 * (HUD_DYN.bw + HUD_DYN.gap) + HUD_DYN.gap * 2 + (HUD_DYN.bw + HUD_DYN.gap) + HUD_DYN.pad
+	-- Remove All's offset from the panel top, sitting under the last of `count` token rows
+	function HUD_DYN.removeAllY(count)
+		return -(HUD_DYN.pad + count * (HUD_DYN.sh + HUD_DYN.sgap))
+	end
+
 	local function hudHistLabel(entry)
 		return entry and shortName(stripBBCode(entry.name), 8, 3) or "·"
 	end
@@ -1021,9 +1052,10 @@
 	-- "Are you sure?" state: set by the first click, cleared by the second click or after REMOVE_CONFIRM_TIME
 	local removeConfirm = nil   -- { color = playerColor, targetGUID = model }
 
-	-- Switches the Remove All button between its normal (yellow) and armed "Sure?" (red) look
+	-- Switches the Remove All buttons (HUD + OUI) between their normal (yellow) and armed "Sure?" (red) look
 	local function setRemoveAllLook(text, styleName)
 		setHudButtonLook("TokenApplier_hud_dynRemoveAll", text, styleName)
+		setButtonLook(self.UI, "dynRemoveAll", text, styleName)
 	end
 
 	local function resetRemoveConfirm()
@@ -1270,7 +1302,7 @@
 	end
 
 	-- Opaque mode (OUI + HUD): swap every background to fully solid, or back to the shipped look.
-	-- Rebuilds both UIs so everything is drawn fresh in the new colours.
+	-- Rebuilds both UIs so everything is drawn fresh in the new colours (and the tooltips below).
 	function btn_toggleOpacity(_, _)
 		uiOpaque = not uiOpaque
 		applyOpacity()
@@ -1311,68 +1343,21 @@
 		dynPanelVisible = true
 	end
 
+	-- Line up / Radial label on both UIs (the style never changes, see LINEUP)
+	local function setLineUpLabel(isLineUp)
+		self.UI.setAttribute("dynLineUpToggle_text", "text", LINEUP.oui[isLineUp])
+		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text", "text", LINEUP.hud[isLineUp])
+	end
+
 	-- Shows the dynamic panel populated for the given target model.
 	-- Replaces showDynamicButtons().
 	function showDynamicPanel(targetGUID, tokenCount)
 		if lastSelectedGUID == targetGUID then return end
-
-		local tokens = findTokensForTarget(targetGUID)
-		local count  = math.min(tokenCount, MAX_TOKENS)
-		--show 
-		local isLineUp = modelLineUp[targetGUID] or false
-		local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
-		local label    = isLineUp and "Radial" or "Line up"
-		local fontSize = isLineUp and "10"     or "12"
-
-		self.UI.setAttribute("dynLineUpToggle",        "colors",    s.colors)
-		self.UI.setAttribute("dynLineUpToggle",        "textColor", s.textColor)
-		self.UI.setAttribute("dynLineUpToggle_text",   "text",      label)
-		self.UI.setAttribute("dynLineUpToggle_text",   "fontSize",  fontSize)
-		self.UI.setAttribute("dynLineUpToggle_text",   "color",     "#FFFFFF")
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle",      "colors",    s.colors)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle",      "textColor", s.textColor)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text", "text",      label)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text", "fontSize",  fontSize)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text", "color",     "#FFFFFF")
-		
-		--show spread
-		local showSpread = tokenCount >= 2
-		self.UI.setAttribute("dynSpreadUp",          "active", showSpread and "True" or "False")
-		self.UI.setAttribute("dynSpreadDown",        "active", showSpread and "True" or "False")
-		UI.setAttribute("TokenApplier_hud_dynSpreadUp",        "active", showSpread and "True" or "False")
-		UI.setAttribute("TokenApplier_hud_dynSpreadDown",      "active", showSpread and "True" or "False")
-
-		for i = 1, MAX_TOKENS do
-			local slotActive = (i <= count)
-			local tGUID      = tokens[i]
-			local slotId     = "dynSlot_" .. i
-			local hudSlotId  = "TokenApplier_hud_dynSlot_" .. i
-
-			self.UI.setAttribute(slotId,             "active", slotActive and "True" or "False")
-			self.UI.setAttribute("dynRemove_" .. i,  "active", slotActive and "True" or "False")
-			UI.setAttribute(hudSlotId,               "active", slotActive and "True" or "False")
-			UI.setAttribute("TokenApplier_hud_dynRemove_" .. i,"active", slotActive and "True" or "False")
-
-			if slotActive and tGUID then
-				local name       = getTokenName(tGUID)
-				local isSelected = (selectedTokenGUID == tGUID)
-				local slotStyle  = isSelected and "dynSlotSelected" or "dynSlot"
-				local label      = shortName(stripBBCode(name), 35, 2)
-				local hudLabel   = shortName(stripBBCode(name), 14, 2)
-
-				self.UI.setAttribute(slotId, "text",      label)
-				self.UI.setAttribute(slotId, "colors",    BTN_STYLE[slotStyle].colors)
-				self.UI.setAttribute(slotId, "textColor", BTN_STYLE[slotStyle].textColor)
-
-				UI.setAttribute(hudSlotId, "text",      hudLabel)
-				UI.setAttribute(hudSlotId, "colors",    BTN_STYLE[slotStyle].colors)
-				UI.setAttribute(hudSlotId, "textColor", BTN_STYLE[slotStyle].textColor)
-
-				self.setVar("removeSlot_" .. i, tGUID)
-				self.setVar("selectSlot_" .. i, tGUID)
-			end
-		end
-
+		setLineUpLabel(modelLineUp[targetGUID] or false)
+		-- Spread buttons, token rows and the HUD Remove All position: one shared routine, so opening
+		-- the panel and changing its tokens can't lay it out differently (Remove All used to stay at
+		-- its build-time spot until a token was added, because this path skipped it).
+		refreshDynamicPanelSlots(targetGUID)
 		activateDynamicPanel()
 		lastSelectedGUID = targetGUID
 	end
@@ -1481,6 +1466,9 @@
 	function refreshDynamicPanelSlots(targetGUID)
 		local tokens = findTokensForTarget(targetGUID)
 		local count  = #tokens
+
+		-- HUD Remove All sits right under the last token name (#96)
+		UI.setAttribute("TokenApplier_hud_dynRemoveAll", "offsetXY", HUD_DYN.slotX .. " " .. HUD_DYN.removeAllY(math.min(count, MAX_TOKENS)))
 
 		local showSpread = count >= 2
 		self.UI.setAttribute("dynSpreadUp",     "active", showSpread and "True" or "False")
@@ -1742,7 +1730,7 @@
 		local oStyle = uiOpaque and "toggleOn" or "danger"
 		table.insert(lines, '    <Button id="opacityToggleBtn"')
 		table.insert(lines, '      onClick="btn_toggleOpacity"')
-		table.insert(lines, '      tooltip="Opaque: make every Token Applier background fully solid (object + HUD)"')
+		table.insert(lines, '      tooltip="' .. OPAQUE_TOOLTIP[uiOpaque] .. '"')
 		table.insert(lines, '      ' .. btnStyle(oStyle))
 		table.insert(lines, '      fontSize="18" preferredWidth="146" preferredHeight="50"')
 		table.insert(lines, '      ><Text text="' .. (uiOpaque and "Opaque: ON" or "Opaque: OFF") .. '" color="' .. BTN_STYLE[oStyle].textColor .. '" fontSize="18" /></Button>')
@@ -1893,18 +1881,28 @@
 
 		-- Col 4 (double-gapped): LineUp toggle
 		local isLineUp = modelLineUp[lastSelectedGUID or ""] or false
-		local s = BTN_STYLE[isLineUp and "active" or "danger"]
 		table.insert(lines, '  <Button id="dynLineUpToggle"'
 			.. ' onClick="btn_toggleModelLineUp"'
-			.. ' tooltip="Toggle line-up mode"'
-			.. ' colors="' .. s.colors .. '"'
-			.. ' textColor="' .. s.textColor .. '"'
-			.. ' transition="' .. s.transition .. '"'
+			.. ' tooltip="Switch this model between line-up and radial token layout"'
+			.. ' ' .. btnStyle(LINEUP.style)
 			.. ' width="' .. BW .. '" height="' .. BW .. '"'
-			.. ' fontSize="30"'
+			.. ' fontSize="14"'
 			.. ' rectAlignment="UpperLeft"'
 			.. ' offsetXY="' .. col4() .. ' ' .. row(0) .. '">'
-			.. '<Text id="dynLineUpToggle_text" text="Line up" color="#FFFFFF" fontSize="22" width="' .. BW .. '" height="' .. BW .. '" alignment="MiddleCenter" />'
+			.. '<Text id="dynLineUpToggle_text" text="' .. xmlAttrText(LINEUP.oui[isLineUp]) .. '" color="' .. BTN_STYLE[LINEUP.style].textColor .. '" fontSize="14" width="' .. BW .. '" height="' .. BW .. '" alignment="MiddleCenter" />'
+			.. '</Button>')
+
+		-- Remove All Tokens (OUI): a wide bar ABOVE the modifier grid, from its left edge to Line up's right edge.
+		-- Same two-click confirm and handler as the HUD one (hud_removeTokens).
+		local ouiRemW = col4() + BW - PAD
+		table.insert(lines, '  <Button id="dynRemoveAll"'
+			.. ' onClick="hud_removeTokens"'
+			.. ' tooltip="Remove ALL tokens from the selected model (click twice to confirm)"'
+			.. ' ' .. btnStyle(REMOVE_ALL_STYLE)
+			.. ' width="' .. ouiRemW .. '" height="36"'
+			.. ' rectAlignment="UpperLeft"'
+			.. ' offsetXY="' .. PAD .. ' 44">'   -- y +44: sits above the panel top (row 0 starts at -8), 16 gap
+			.. '<Text id="dynRemoveAll_text" text="' .. REMOVE_ALL_LABEL .. '" color="' .. BTN_STYLE[REMOVE_ALL_STYLE].textColor .. '" fontSize="18" width="' .. ouiRemW .. '" height="36" alignment="MiddleCenter" />'
 			.. '</Button>')
 			
 	    -- Token slots — below modifier grid with extra gap
@@ -2105,27 +2103,36 @@
 		table.insert(lines, '  ><Text text="⚙" color="' .. ss.textColor .. '" fontSize="10" width="26" height="26" alignment="MiddleCenter" /></Button>')
 
 		-- HUD layout (offsets from TokenApplier_hud_root's bottom-centre; x = button centre, y = button bottom)
-		--   Token History panel   x -252..-132  y 61..176   (left of the history grid, which spans x -112..112; gap holds the < arrow)
-		--   HUD row               x -252..-132  y 31..57    [HUD][Solid][Place][Drag]   (#91 order)
+		--   Token History panel   x -252..-132  y 91..206   (left of the history grid, which spans x -112..112; gap holds the < arrow)
+		--   HUD block (2×2)       x -252..-132  y 31..87    [HUD][Opaque] over [Place][Drag]   (#91 order)
 		--   Debug row             x -252..-166  y 2..28     [F][↺][ID]  (left edge lines up with Token History + HUD row); footer strip [⚙][minimise] x -112.5..112.5
 
-	    -- ── HUD row: HUD on/off, Solid/Opaque, Place HUD, HUD Drag (only while settings are open) ──
-	    -- 4 buttons × 27 wide + 3 gaps × 4 = 120, filling x -252..-132; centres -238.5 / -207.5 / -176.5 / -145.5
-	    local function hudRowBtn(id, onClick, tooltip, style, label, x)
+	    -- ── HUD block: HUD on/off, Opaque, Place HUD, HUD Drag (only while settings are open) ──
+	    -- 2×2 of EQUAL buttons with one font size: mixed sizes or widths look unfinished, and four
+	    -- words don't fit one 120-wide row at a readable size. 2 × 58 + gap 4 = 120 (x -252..-132).
+	    local ROW_FONT, ROW_GAP, ROW_W, ROW_H = 9, 4, 58, 26
+	    local function hudRowBtn(id, onClick, tooltip, style, label, col, row)   -- col 0-1 left→right, row 0 = bottom
 	        local s = BTN_STYLE[style]
+	        local width  = ROW_W
+	        local centre = -252 + col * (ROW_W + ROW_GAP) + ROW_W / 2
+	        local bottom = 31 + row * (ROW_H + ROW_GAP)
 	        return '<Button id="' .. id .. '" active="' .. (settingsOpen and "True" or "False") .. '"'
-	            .. ' rectAlignment="LowerCenter" offsetXY="' .. x .. ' 31" width="27" height="26"'
+	            .. ' rectAlignment="LowerCenter" offsetXY="' .. centre .. ' ' .. bottom .. '" width="' .. width .. '" height="' .. ROW_H .. '"'
 	            .. ' onClick="' .. g .. '/' .. onClick .. '" ' .. btnStyle(style) .. ' tooltip="' .. tooltip .. '">'
-	            .. '<Text id="' .. id .. '_text" text="' .. label .. '" color="' .. s.textColor .. '" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="9" alignment="MiddleCenter" /></Button>'
+	            -- The Text needs the button's size AND horizontalOverflow: without them TTS wraps the word
+	            -- inside its own default (narrower) box, giving "HU/D", "Opaq/ue", "Canc/el"
+	            .. '<Text id="' .. id .. '_text" text="' .. label .. '" color="' .. s.textColor .. '" fontSize="' .. ROW_FONT .. '"'
+	            .. ' width="' .. width .. '" height="' .. ROW_H .. '" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>'
 	    end
+	    -- Reading order: top row HUD, Opaque; bottom row Place, Drag
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_off", "btn_toggleHUD", "Turn the HUD off (turn it back on from the Token Applier's settings)",
-	        "toggleOn", "HUD", -238.5))   -- only ever drawn while the HUD is on
+	        "toggleOn", "HUD", 0, 1))   -- only ever drawn while the HUD is on
+	    table.insert(lines, hudRowBtn("TokenApplier_hud_opacityBtn", "btn_toggleOpacity", OPAQUE_TOOLTIP[uiOpaque],
+	        uiOpaque and "toggleOn" or "danger", "Opaque", 1, 1))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_placeBtn", "btn_toggleHudPlacement", "Place HUD: choose a fixed position for the HUD",
-	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", -176.5))
+	        hudPlacementMode and "toggleOn" or "settingsItem", hudPlacementMode and "Cancel" or "Place", 0, 0))
 	    table.insert(lines, hudRowBtn("TokenApplier_hud_dragToggleBtn", "btn_toggleHudDraggable", "HUD Drag: allow the HUD to be dragged anywhere on screen",
-	        hudDraggable and "toggleOn" or "danger", "Drag", -145.5))
-	    table.insert(lines, hudRowBtn("TokenApplier_hud_opacityBtn", "btn_toggleOpacity", "Solid: make every Token Applier background fully opaque (HUD + object)",
-	        uiOpaque and "toggleOn" or "danger", "Solid", -207.5))
+	        hudDraggable and "toggleOn" or "danger", "Drag", 1, 0))
 
 	    -- ── Set Template button (independent) ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_setTemplate"')
@@ -2168,7 +2175,7 @@
 	    table.insert(lines, '  hideAnimation="Shrink"')
 	    table.insert(lines, '  animationDuration="0.1"')
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
-		table.insert(lines, '  offsetXY="-192 61"')
+		table.insert(lines, '  offsetXY="-192 91"')   -- up one row (30) to make room for the 2×2 HUD block
 	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
 		table.insert(lines, '  color="#00000000">')   -- see-through: the rounded background below does the colour
 		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op(SETTINGS_PANEL_COLOR)))   -- 1.4.2 look test
@@ -2256,15 +2263,19 @@
 	    
 
 	-- ── HUD Dynamic panel ──
-		local HPAD  = 8
-		local HBW   = 40    -- mod button size (square)
-		local HGAP  = 4
+		-- Measurements live in HUD_DYN (shared with refreshDynamicPanelSlots). Layout, panel y up from root bottom:
+		--   modifier grid rows 0-2   y 192..64      token names + ✕   top y 192, one row per token
+		--   divider line             y 46           Remove All bar    right under the last token row
+		--   Line up strip            y 2..28 (same bottom line and height as the minimise strip)
+		local HPAD  = HUD_DYN.pad
+		local HBW   = HUD_DYN.bw
+		local HGAP  = HUD_DYN.gap
 		local HSTEP = HBW + HGAP  -- 44 — used for mod grid layout only
 
-		local HSH   = 24    -- slot button height (independent from mod buttons)
-		local HSW   = 200   -- slot button width
-		local HRW   = HBW   -- remove button width (stays square, matches mod buttons)
-		local HSGAP = 4     -- slot vertical gap
+		local HSH   = HUD_DYN.sh
+		local HSW   = HUD_DYN.sw
+		local HRW   = HUD_DYN.rw   -- ✕ buttons: square (#96)
+		local HSGAP = HUD_DYN.sgap
 
 		local function hcol(c) return HPAD + c * HSTEP end
 		local function hrow(r) return -(HPAD + r * HSTEP) end
@@ -2286,16 +2297,9 @@
 				.. '</Button>'
 		end
 
-		-- Total mod grid width: 4 cols = 4*44 = 176, plus padding
-		-- Total slot section width: HSW + HGAP + HRW + HPAD = 160+4+40+8 = 212
-		-- Panel width: HPAD + 176 + HGAP + 212 = 404
-		-- Panel height: 6 slots * (HBW+HGAP) = 6*44 = 264, plus padding = 280
-		-- Centre mod grid (3 rows) against slot list (6 rows)
-		local modGridH  = HPAD + (3 * HSTEP) + (HGAP * 2) + HSTEP + HPAD
-		local slotListH = HPAD + (MAX_TOKENS * (HSH + HSGAP)) + HPAD
-		local HDYN_H    = math.max(modGridH, slotListH)
-		local HDYN_W = HPAD + (4 * HSTEP) + HGAP + HSW + HGAP + HRW + HPAD
-		local centerOffset = math.floor((slotListH - modGridH) / 2) -- Vertical centre offset: mod grid is 3 rows tall, slots up to 6
+		-- Panel: 200 tall (modifier grid + Line up), 424 wide (grid + token list + padding)
+		local HDYN_H = HUD_DYN.panelH
+		local HDYN_W = HUD_DYN.slotX + HUD_DYN.listW + HPAD
 
 		table.insert(lines, '<Panel id="TokenApplier_hud_dynPanel"')
 		table.insert(lines, '  showAnimation="Grow"')
@@ -2323,38 +2327,45 @@
 		table.insert(lines, hmbtn(nil,                  "btn_scaleDown",    "Scale down",        "dynRedBtn", "18", "·",    1, 2))
 		table.insert(lines, hmbtn(nil,                  "btn_rotate",       "Rotate 180°",       "dynMod",    "18", "↻",    2, 2))
 
-		-- Row 3 (double-gapped): LineUp toggle
-		local HDBLGAP   = HGAP * 2
-		local hRow3Y    = -(HPAD + 3 * HSTEP + HDBLGAP)
+		-- Divider between the modifier grid and the Line up strip (#96). Not clickable.
+		local LINEUP_H = 26   -- same height as the minimise strip
+		-- A dark 1px line right under the light one acts as its shadow, so it shows on light and dark tables
+		-- (Panels ignore the shadow attribute, like they ignore outline).
+		table.insert(lines, '  <Panel width="' .. HUD_DYN.gridW .. '" height="1" color="#8A96B0CC" raycastTarget="false"'
+			.. ' rectAlignment="UpperLeft" offsetXY="' .. hcol(0) .. ' ' .. -(HDYN_H - 46) .. '" />')
+		table.insert(lines, '  <Panel width="' .. HUD_DYN.gridW .. '" height="1" color="#000000AA" raycastTarget="false"'
+			.. ' rectAlignment="UpperLeft" offsetXY="' .. hcol(0) .. ' ' .. -(HDYN_H - 45) .. '" />')
+
+		-- Line up strip: as wide as the modifier grid, sitting on the same bottom line as minimise (y 2)
 		local isLineUp  = modelLineUp[lastSelectedGUID or ""] or false
 		table.insert(lines, '  <Button id="TokenApplier_hud_dynLineUpToggle" '
 			.. 'onClick="' .. g .. '/btn_toggleModelLineUp" '
 			.. 'tooltip="Toggle line-up mode" '
-			.. btnStyle(isLineUp and "danger" or "active") .. ' '
-			.. 'width="' .. HBW .. '" height="' .. HBW .. '" '
-			.. 'fontSize="18" '
+			.. btnStyle(LINEUP.style) .. ' '
+			.. 'width="' .. HUD_DYN.gridW .. '" height="' .. LINEUP_H .. '" '
+			.. 'fontSize="12" '
 			.. 'rectAlignment="UpperLeft" '
-			.. 'offsetXY="' .. hcol(0) .. ' ' .. hRow3Y .. '">'
-			.. '<Text id="TokenApplier_hud_dynLineUpToggle_text" text="' .. (isLineUp and "Radial" or "Line up") .. '" color="' .. (BTN_STYLE[isLineUp and "danger" or "active"]).textColor .. '" fontSize="12" width="' .. HBW .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+			.. 'offsetXY="' .. hcol(0) .. ' ' .. -(HDYN_H - 2 - LINEUP_H) .. '">'
+			.. '<Text id="TokenApplier_hud_dynLineUpToggle_text" text="' .. LINEUP.hud[isLineUp] .. '" color="' .. BTN_STYLE[LINEUP.style].textColor .. '" fontSize="12" width="' .. HUD_DYN.gridW .. '" height="' .. LINEUP_H .. '" alignment="MiddleCenter" />'
 			.. '</Button>')
 
-		-- Row 3: Remove All Tokens — right of Line-Up, spans cols 1-2 (two buttons + the gap between)
+		-- Remove All Tokens: a short, wide bar right under the token names (what it removes). Its y is
+		-- moved under the last token row by refreshDynamicPanelSlots; built under row 1 as a placeholder.
 		-- Two-click safeguard: first click arms it, second click removes (see hud_removeTokens)
-		local HREMW = HBW * 2 + HGAP
 		table.insert(lines, '  <Button id="TokenApplier_hud_dynRemoveAll" '
 			.. 'onClick="' .. g .. '/hud_removeTokens" '
 			.. 'tooltip="Remove ALL tokens from the selected model (click twice to confirm)" '
 			.. btnStyle(REMOVE_ALL_STYLE) .. ' '
-			.. 'width="' .. HREMW .. '" height="' .. HBW .. '" '
+			.. 'width="' .. HUD_DYN.listW .. '" height="' .. HUD_DYN.remH .. '" '
 			.. 'rectAlignment="UpperLeft" '
-			.. 'offsetXY="' .. hcol(1) .. ' ' .. hRow3Y .. '">'
+			.. 'offsetXY="' .. HUD_DYN.slotX .. ' ' .. HUD_DYN.removeAllY(1) .. '">'
 			.. '<Text id="TokenApplier_hud_dynRemoveAll_text" text="' .. REMOVE_ALL_LABEL .. '" color="' .. BTN_STYLE[REMOVE_ALL_STYLE].textColor .. '" '
-			.. 'resizeTextForBestFit="true" resizeTextMinSize="7" resizeTextMaxSize="11" '
-			.. 'width="' .. (HREMW - 4) .. '" height="' .. HBW .. '" alignment="MiddleCenter" />'
+			.. 'fontSize="10" '
+			.. 'width="' .. HUD_DYN.listW .. '" height="' .. HUD_DYN.remH .. '" alignment="MiddleCenter" />'
 			.. '</Button>')
 
 		-- Slot section — to the right of mod grid
-		local slotX = HPAD + (4 * HSTEP) + HGAP
+		local slotX = HUD_DYN.slotX
 		
 
 		for i = 1, MAX_TOKENS do
@@ -2378,7 +2389,7 @@
 			table.insert(lines, '    width="' .. HRW .. '" height="' .. HSH .. '"')
 			table.insert(lines, '    rectAlignment="UpperLeft"')
 			table.insert(lines, '    offsetXY="' .. (slotX + HSW + HGAP) .. ' ' .. yOffset .. '"')
-			table.insert(lines, '    fontSize="18"><Text text="✕" color="#FFFFFF" width="' .. HRW .. '" height="' .. HBW .. '" alignment="MiddleCenter" /></Button>')
+			table.insert(lines, '    fontSize="14"><Text text="✕" color="#FFFFFF" fontSize="14" width="' .. HRW .. '" height="' .. HSH .. '" alignment="MiddleCenter" /></Button>')
 		end
 
 				table.insert(lines, '</Panel><!--TokenApplier_hud_dynPanel-->') -- end TokenApplier_hud_dynPanel
@@ -2419,7 +2430,13 @@
 			end
 		end
 
-		table.insert(lines, '</Panel><!--TokenApplier_hud_placementOverlay-->') -- end TokenApplier_hud_placementOverlay
+		-- Big Cancel at the bottom centre: the small HUD "Cancel" is hard to spot under the dark overlay.
+	-- Same handler as the HUD button (toggling placement off).
+	table.insert(lines, '  <Button onClick="' .. g .. '/btn_toggleHudPlacement" ' .. btnStyle("lookNeutral")
+		.. ' rectAlignment="MiddleCenter" offsetXY="0 -420" width="220" height="56" fontSize="24" tooltip="Keep the HUD where it is">'
+		.. '<Text text="Cancel" color="' .. BTN_STYLE.lookNeutral.textColor .. '" fontSize="24" width="220" height="56" alignment="MiddleCenter" /></Button>')
+
+	table.insert(lines, '</Panel><!--TokenApplier_hud_placementOverlay-->') -- end TokenApplier_hud_placementOverlay
 		
 	    return table.concat(lines, "\n")
 	end
@@ -3057,16 +3074,6 @@
 	        rebuildHUD()
 	    end, function() return not UI.loading end)
 	
-		Wait.condition(function()
-			local isLineUp = modelLineUp[lastSelectedGUID or ""] or false
-			local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
-			self.UI.setAttribute("dynLineUpToggle",          "colors",    s.colors)
-			self.UI.setAttribute("dynLineUpToggle",          "textColor", s.textColor)
-			self.UI.setAttribute("dynLineUpToggle_text",     "color",     "#FFFFFF")
-			UI.setAttribute("TokenApplier_hud_dynLineUpToggle",        "colors",    s.colors)
-			UI.setAttribute("TokenApplier_hud_dynLineUpToggle",        "textColor", s.textColor)
-			UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text",   "color",     "#FFFFFF")
-		end, function() return not self.UI.loading and not UI.loading end)
 
 	    -- Right-click backup, works even if the HUD is broken by another mod
 	    self.addContextMenuItem("Find Tokens", function() btn_findTokens() end)
@@ -3341,18 +3348,7 @@
 		local targetGUID = sel[1].getGUID()
 		modelLineUp[targetGUID] = not modelLineUp[targetGUID]
 		saveState()
-		local isLineUp = modelLineUp[targetGUID]
-		local s = BTN_STYLE[isLineUp and "lineUpOn" or "lineUpOff"]
-		self.UI.setAttribute("dynLineUpToggle", "colors",    s.colors)
-		self.UI.setAttribute("dynLineUpToggle", "textColor", s.textColor)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle", "colors",    s.colors)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle", "textColor", s.textColor)
-		self.UI.setAttribute("dynLineUpToggle_text",        "color", s.textColor)
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text",      "color", s.textColor)
-		self.UI.setAttribute("dynLineUpToggle_text",   "text",     isLineUp and "Token Radial" or "Token Line up")
-		self.UI.setAttribute("dynLineUpToggle_text",   "fontSize", isLineUp and "14"     or "14")
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text", "text",     isLineUp and "Token Radial" or "Token Line up")
-		UI.setAttribute("TokenApplier_hud_dynLineUpToggle_text", "fontSize", isLineUp and "10"     or "10")
+		setLineUpLabel(modelLineUp[targetGUID])
 	end
 
 -- ──────────────────────────────────────────────────────────────
