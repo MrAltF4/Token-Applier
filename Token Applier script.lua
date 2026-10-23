@@ -465,6 +465,44 @@
 			{ name = "White",  hex = "#FFFFFF" },
 		},
 		hudPanelH = 116,            -- HUD customise panel height (its top = 240 + this)
+		-- Dynamic button layout (#101): where each modifier button sits, as {column, row} (0-based) in the
+		-- 4×3 grid. Same buttons, only the positions change. Saved as dynLayout.
+		dynLayout  = 1,
+		dynLayouts = {
+			{   -- 1: the original arrangement
+				name = "Layout 1",
+				forward  = {0, 0}, scaleUp  = {1, 0}, flip       = {2, 0}, vertical = {3, 0},
+				spreadDown = {0, 1}, heightUp = {1, 1}, heightDown = {2, 1}, spreadUp = {3, 1},
+				backward = {0, 2}, scaleDown = {1, 2}, rotate    = {2, 2},
+			},
+			{   -- 2: pairs in columns (user's design): top row = more / up / forward, the row under it =
+				--    less / down / back, so each pair is stacked; the one-off buttons on the bottom row
+				name = "Layout 2",
+				scaleUp   = {0, 0}, heightUp   = {1, 0}, spreadUp   = {2, 0}, forward  = {3, 0},
+				scaleDown = {0, 1}, heightDown = {1, 1}, spreadDown = {2, 1}, backward = {3, 1},
+				vertical  = {0, 2}, flip       = {1, 2}, rotate     = {2, 2},
+			},
+			{   -- 3: grouped by what they affect. Top = the buttons that work on all OR just the selected token
+				--    (scale, height, flip, rotate, vertical); a divider; then the ALL-tokens row (move, spread),
+				--    which sits next to Line up below it, another all-tokens button
+				name = "Layout 3",
+				split = 2,   -- rows from this one down move down dynSplitPx, with a divider in the gap
+				scaleDown = {0, 0}, scaleUp = {1, 0}, heightDown = {2, 0}, heightUp = {3, 0},
+				flip     = {0, 1}, rotate   = {1, 1}, vertical   = {2, 1},
+				backward = {0, 2}, forward  = {1, 2}, spreadDown = {2, 2}, spreadUp = {3, 2},
+			},
+			{   -- 4: the player's own arrangement (ARRANGE). Starts as a copy of Layout 1; saved as customLayout.
+				name = "Custom",
+				custom = true,
+				forward  = {0, 0}, scaleUp  = {1, 0}, flip       = {2, 0}, vertical = {3, 0},
+				spreadDown = {0, 1}, heightUp = {1, 1}, heightDown = {2, 1}, spreadUp = {3, 1},
+				backward = {0, 2}, scaleDown = {1, 2}, rotate    = {2, 2},
+			},
+		},
+		-- the 11 button keys every layout places (also the keys saved for the Custom layout)
+		dynKeys = { "forward", "backward", "scaleUp", "scaleDown", "flip", "rotate", "vertical",
+			"spreadDown", "spreadUp", "heightUp", "heightDown" },
+		dynSplitPx = 8,   -- how far a layout's "split" rows move down to make room for the divider
 		-- Backgrounds (#100): a rounded backdrop behind each HUD group, filling the see-through gaps.
 		-- bg = index into bgLevels (saved). Its own setting: Opaque mode does NOT change it.
 		-- Every backdrop = its group's outermost content + bgMargin on all four sides, so the
@@ -729,6 +767,12 @@
 				debugOpen           = debugOpen,
 				selectColor         = CUSTOM.selectColor,
 				bgLevel             = CUSTOM.bg,
+				dynLayout           = CUSTOM.dynLayout,
+				customLayout        = (function()   -- the Custom layout's positions: { key = {col, row} }
+					local out, L = {}, CUSTOM.dynLayouts[4]
+					for _, k in ipairs(CUSTOM.dynKeys) do out[k] = { L[k][1], L[k][2] } end
+					return out
+				end)(),
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -770,6 +814,22 @@
 		if type(data.debugOpen) == "boolean" then debugOpen = data.debugOpen end
 		CUSTOM.selectColor = CUSTOM.cleanHex(data.selectColor) or CUSTOM.defaultColor
 		if CUSTOM.bgLevels[data.bgLevel] then CUSTOM.bg = data.bgLevel end
+		if CUSTOM.dynLayouts[data.dynLayout] then CUSTOM.dynLayout = data.dynLayout end
+		-- Custom layout: only taken if every button has a valid, unique cell (else it stays a copy of Layout 1)
+		if type(data.customLayout) == "table" then
+			local seen, ok = {}, true
+			for _, k in ipairs(CUSTOM.dynKeys) do
+				local p = data.customLayout[k]
+				local c, r = type(p) == "table" and tonumber(p[1]), type(p) == "table" and tonumber(p[2])
+				if not (c and r and c >= 0 and c <= 3 and r >= 0 and r <= 2) or seen[c .. "," .. r] then ok = false break end
+				seen[c .. "," .. r] = true
+			end
+			if ok then
+				for _, k in ipairs(CUSTOM.dynKeys) do
+					CUSTOM.dynLayouts[4][k] = { tonumber(data.customLayout[k][1]), tonumber(data.customLayout[k][2]) }
+				end
+			end
+		end
 		-- Upgrade history from older saves (adds size info, name-only display)
 		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
@@ -1525,6 +1585,9 @@
 		for _, id in ipairs(ids) do setShown(id, settingsOpen) end
 		for _, id in ipairs(debugIds) do setShown(id, settingsOpen and debugOpen) end
 		setShown("TokenApplier_hud_customisePanel", settingsOpen and CUSTOM.open)
+		-- Layout switch + Arrange (#101): only with the customise panel open (Arrange: only on Custom)
+		setShown("TokenApplier_hud_dynLayoutBtn", settingsOpen and CUSTOM.open)
+		setShown("TokenApplier_hud_arrangeBtn", settingsOpen and CUSTOM.open and CUSTOM.dynLayouts[CUSTOM.dynLayout].custom == true)
 		-- Settings backdrop (#100) only exists when Backgrounds is on
 		if CUSTOM.bgLevels[CUSTOM.bg].color then setShown("TokenApplier_hud_settingsBg", settingsOpen) end
 		setShown("TokenApplier_hud_deleteOverlayPanel", historyEditMode)
@@ -1668,6 +1731,7 @@
 		if not settingsOpen then
 			setHistoryEditMode(false)   -- closing settings also leaves edit mode (hides overlays + Clear History)
 			if MOVE.on then MOVE.stop() end   -- ... and Move mode
+			ARRANGE.stop()                    -- ... and arranging the Custom layout
 		end
 		if settingsOpen then
 			self.UI.show("settingsPanel")
@@ -1740,6 +1804,7 @@
 		if CUSTOM.bgOn() then UI.setAttribute("TokenApplier_hud_settingsBg", "height", CUSTOM.settingsBgH(CUSTOM.open)) end
 		setHudButtonLook("TokenApplier_hud_customiseToggle", nil, style)
 		setPressedExtras(UI, "TokenApplier_hud_customiseToggle", CUSTOM.open, 1)
+		if not CUSTOM.open then ARRANGE.stop() end   -- closing customise ends arranging (its button lives there)
 	end
 
 	-- Selection colour (#102): a new colour rebuilds both UIs in it (every build reads BTN_STYLE)
@@ -1780,6 +1845,80 @@
 		saveState()
 		rebuildXML()
 		rebuildHUD()
+	end
+
+	-- Dynamic button layout (#101): cycles Layout 1 → 2 → 3. A rebuild moves the buttons (both UIs).
+	function btn_cycleDynLayout(_, _)
+		CUSTOM.dynLayout = CUSTOM.dynLayout % #CUSTOM.dynLayouts + 1
+		ARRANGE.on, ARRANGE.picked = false, nil   -- arranging only makes sense on Custom
+		saveState()
+		rebuildXML()
+		rebuildHUD()
+	end
+
+	-- ── Arrange the Custom layout (#101 Layout 4) ──
+	-- Same idea as Move History: Arrange (pressed) + a yellow frame around the token buttons; click a
+	-- button to pick it (white), then another button or the empty cell, and they swap. While arranging,
+	-- the token buttons only move (their handlers hand the click to ARRANGE.click). Every step rebuilds
+	-- both UIs, which reads ARRANGE: picked = white, spread buttons always shown, the empty cell clickable.
+	ARRANGE = {
+		on     = false,
+		picked = nil,   -- a key from CUSTOM.dynKeys, or "empty" (the free cell)
+		-- onClick name → key, so the button builders can tell which button they're drawing
+		keyOf  = { btn_lineForward = "forward", btn_lineBackward = "backward", btn_scaleUp = "scaleUp",
+			btn_scaleDown = "scaleDown", btn_flip = "flip", btn_rotate = "rotate", btn_vertical = "vertical",
+			btn_radiusDown = "spreadDown", btn_radiusUp = "spreadUp", btn_heightUp = "heightUp",
+			btn_heightDown = "heightDown", btn_arrangeEmpty = "empty" },
+	}
+
+	-- The Custom layout's free cell {col, row} (11 buttons in 12 cells)
+	function ARRANGE.freeCell()
+		local L, used = CUSTOM.dynLayouts[4], {}
+		for _, k in ipairs(CUSTOM.dynKeys) do used[L[k][1] .. "," .. L[k][2]] = true end
+		for r = 0, 2 do for c = 0, 3 do
+			if not used[c .. "," .. r] then return { c, r } end
+		end end
+	end
+
+	local function arrangeRefresh()
+		rebuildXML()
+		rebuildHUD()
+	end
+
+	function ARRANGE.stop()
+		if not ARRANGE.on then return end
+		ARRANGE.on, ARRANGE.picked = false, nil
+		arrangeRefresh()
+	end
+
+	-- A token button (or the empty cell) was clicked while arranging
+	function ARRANGE.click(key)
+		if not ARRANGE.picked then
+			ARRANGE.picked = key
+		elseif ARRANGE.picked == key then
+			ARRANGE.picked = nil                                  -- same one again: un-pick
+		else
+			local L    = CUSTOM.dynLayouts[4]
+			local a, b = ARRANGE.picked, key
+			local cellA = (a == "empty") and ARRANGE.freeCell() or L[a]
+			local cellB = (b == "empty") and ARRANGE.freeCell() or L[b]
+			if a ~= "empty" then L[a] = { cellB[1], cellB[2] } end
+			if b ~= "empty" then L[b] = { cellA[1], cellA[2] } end
+			ARRANGE.picked = nil
+			saveState()
+		end
+		arrangeRefresh()
+	end
+
+	function btn_toggleArrange(_, _)
+		if not CUSTOM.dynLayouts[CUSTOM.dynLayout].custom then return end
+		ARRANGE.on, ARRANGE.picked = not ARRANGE.on, nil
+		arrangeRefresh()
+	end
+
+	-- The empty cell's button (only exists while arranging)
+	function btn_arrangeEmpty(_, _)
+		if ARRANGE.on then ARRANGE.click("empty") end
 	end
 
 	-- SetTemplate button toggle
@@ -1825,6 +1964,7 @@
 	-- Hides the dynamic panel and resets selection state.
 	-- Replaces clearAllDynamicButtons().
 	function hideDynamicPanel()
+		if ARRANGE.on then return end   -- arranging the Custom layout keeps the buttons up, model or not (#101)
 		if not dynPanelVisible then return end
 		self.UI.hide("dynamicPanel")
 		UI.hide("TokenApplier_hud_dynPanel")
@@ -2035,14 +2175,14 @@
 		-- HUD Remove All sits right under the last token name (#96)
 		UI.setAttribute("TokenApplier_hud_dynRemoveAll", "offsetXY", HUD_DYN.slotX .. " " .. HUD_DYN.removeAllY(math.min(count, MAX_TOKENS)))
 
-		local showSpread = count >= 2
+		local showSpread = count >= 2 or ARRANGE.on   -- (arranging Custom shows them so they can be moved)
 		self.UI.setAttribute("dynSpreadUp",     "active", showSpread and "True" or "False")
 		self.UI.setAttribute("dynSpreadDown",   "active", showSpread and "True" or "False")
 		UI.setAttribute("TokenApplier_hud_dynSpreadUp",   "active", showSpread and "True" or "False")
 		UI.setAttribute("TokenApplier_hud_dynSpreadDown", "active", showSpread and "True" or "False")
 
 		for i = 1, MAX_TOKENS do
-			local slotActive = (i <= count)
+			local slotActive = (i <= count) and not ARRANGE.on   -- token rows hide while arranging Custom (#101)
 			local tGUID      = tokens[i]
 			local slotId     = "dynSlot_" .. i
 			local hudSlotId  = "TokenApplier_hud_dynSlot_" .. i
@@ -2306,7 +2446,7 @@
 		table.insert(lines, '</Panel>')
 
 		-- ── Customise (1.4.3): button above Token Creation; panel above it, in the space left of Add Token ──
-		--   Customise button  x -684..-468  y -222..-258      Customise panel  x -684..-236  y -52..-218
+		--   Customise button  x -684..-468  y -222..-258      Customise panel  x -684..-236  y -6..-218
 		local cusStyle = CUSTOM.open and "pressed" or "settingsItem"   -- pressed in while its panel is open
 		table.insert(lines, '<Button id="customiseToggleBtn" onClick="btn_toggleCustomise"')
 		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
@@ -2317,7 +2457,7 @@
 
 		table.insert(lines, '<Panel id="customisePanel"')
 		table.insert(lines, '  active="' .. ((settingsOpen and CUSTOM.open) and "True" or "False") .. '"')
-		table.insert(lines, '  position="-460 -135 -20" rotation="0 0 0" width="448" height="166"')
+		table.insert(lines, '  position="-460 -112 -20" rotation="0 0 0" width="448" height="212"')
 		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="6" padding="8 8 8 8" childAlignment="UpperCenter" childForceExpandHeight="false">')
 		table.insert(lines, '    <Text text="Selection colour" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="432" preferredHeight="20" />')
@@ -2338,6 +2478,18 @@
 		table.insert(lines, '      <Text text="HUD background" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="18" fontStyle="Bold" alignment="MiddleLeft" preferredWidth="200" preferredHeight="40" />')
 		table.insert(lines, '      <Button onClick="btn_cycleBackground" ' .. btnStyle("settingsItem") .. ' fontSize="18" tooltip="Fill the see-through gaps behind the HUD: 0% / 50% / 100% (click to cycle)" preferredWidth="100" preferredHeight="40">'
 			.. '<Text text="' .. CUSTOM.bgLevels[CUSTOM.bg].label .. '" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="18" width="100" height="40" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '    </HorizontalLayout>')
+		-- Button layout row (#101): which arrangement the dynamic panel's buttons use (both UIs)
+		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="40">')
+		table.insert(lines, '      <Text text="Token buttons" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="18" fontStyle="Bold" alignment="MiddleLeft" preferredWidth="' .. (CUSTOM.dynLayouts[CUSTOM.dynLayout].custom and 140 or 200) .. '" preferredHeight="40" />')
+		table.insert(lines, '      <Button onClick="btn_cycleDynLayout" ' .. btnStyle("settingsItem") .. ' fontSize="18" tooltip="Arrangement of the token buttons: Layout 1 (original), Layout 2 (pairs in columns: up on top, down below) or Layout 3 (grouped: all-token buttons in their own row above Line up). Click to switch" preferredWidth="100" preferredHeight="40">'
+			.. '<Text text="' .. CUSTOM.dynLayouts[CUSTOM.dynLayout].name .. '" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="18" width="100" height="40" alignment="MiddleCenter" /></Button>')
+		-- Arrange (Custom layout only): pick-and-swap the token buttons (#101 Layout 4)
+		if CUSTOM.dynLayouts[CUSTOM.dynLayout].custom then
+			local aSt = ARRANGE.on and "pressed" or "settingsItem"
+			table.insert(lines, '      <Button onClick="btn_toggleArrange" ' .. btnStyle(aSt) .. ' fontSize="18" tooltip="Arrange: click a token button, then another (or the empty spot), to swap them. Select a model with tokens first" preferredWidth="100" preferredHeight="40">'
+				.. '<Text text="' .. (ARRANGE.on and "Done" or "Arrange") .. '" color="' .. BTN_STYLE[aSt].textColor .. '" offsetXY="0 ' .. (ARRANGE.on and -2 or 0) .. '" fontSize="18" width="100" height="40" alignment="MiddleCenter" /></Button>')
+		end
 		table.insert(lines, '    </HorizontalLayout>')
 		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
@@ -2459,12 +2611,22 @@
 	    local STEP = BW + GAP  -- 68
 
 	    local function col(c) return PAD + c * STEP end
-	    local function row(r) return -(PAD + r * STEP) end
+	    -- Rows at or below the layout's "split" row move down CUSTOM.dynSplitPx to make room for a divider (#101 Layout 3)
+	    local function row(r)
+	        local L = CUSTOM.dynLayouts[CUSTOM.dynLayout]
+	        return -(PAD + r * STEP + ((L.split and r >= L.split) and CUSTOM.dynSplitPx or 0))
+	    end
 
 	    local function mbtn(id, onClick, tooltip, style, fontSize, label, c, r, extra)
 			local idA  = id and ('id="' .. id .. '" ') or ""
 			local exA  = extra or ""
 			local s    = BTN_STYLE[style] or BTN_STYLE.ghost
+			-- Arranging the Custom layout (#101): the picked button is white, and every button shows (spread too)
+			local akey = ARRANGE.keyOf[onClick]
+			if ARRANGE.on and akey then
+				if akey == ARRANGE.picked then style = "movePicked" ; s = BTN_STYLE[style] end
+				exA = ""
+			end
 			return '  <Button ' .. idA
 				.. 'onClick="' .. onClick .. '" '
 				.. 'tooltip="' .. tooltip .. '" '
@@ -2484,31 +2646,47 @@
 	    local RW = BW    -- remove button width
 
 	    table.insert(lines, '<Panel id="dynamicPanel"')
-		table.insert(lines, '  showAnimation="Grow"')
-		table.insert(lines, '  hideAnimation="Shrink"')
-	    table.insert(lines, '  animationDuration="0.1"')
-	    table.insert(lines, '  active="False"')
+		-- While arranging Custom (#101): built open with no Grow/Shrink, so each pick/swap redraw is instant
+		if not ARRANGE.on then table.insert(lines, '  showAnimation="Grow" hideAnimation="Shrink" animationDuration="0.1"') end
+		table.insert(lines, '  active="' .. (ARRANGE.on and "True" or "False") .. '"')
 	    table.insert(lines, '  position="440 -395 -25"')  -- X , Y, Z(no change needed)
 	    table.insert(lines, '  rotation="0 0 0"')
 	    table.insert(lines, '  width="' .. (PAD + 3*STEP + DBLGAP + BW + DBLGAP + BW + PAD) .. '" height="700"')
 	    table.insert(lines, '  color="#00000000">')
 
+		-- Positions come from the chosen button layout (#101, CUSTOM.dynLayouts); the "Row" comments below are Layout 1
+		local P = CUSTOM.dynLayouts[CUSTOM.dynLayout]
+		-- Layout 3 divider: in the gap above the split row (same light + dark lines as the HUD's Line up divider)
+		if P.split then
+			local mid = math.floor((row(P.split - 1) - BW + row(P.split)) / 2)
+			local w   = 4 * BW + 3 * GAP
+			table.insert(lines, '  <Panel width="' .. w .. '" height="2" color="#8A96B0CC" raycastTarget="false" rectAlignment="UpperLeft" offsetXY="' .. col(0) .. ' ' .. (mid + 1) .. '" />')
+			table.insert(lines, '  <Panel width="' .. w .. '" height="2" color="#000000AA" raycastTarget="false" rectAlignment="UpperLeft" offsetXY="' .. col(0) .. ' ' .. (mid - 1) .. '" />')
+		end
+		-- Arranging Custom (#101): yellow frame round the buttons + a clickable empty spot (the free cell)
+		if ARRANGE.on and P.custom then
+			local gTop, gBot = row(0), row(2) - BW
+			table.insert(lines, '  ' .. MOVE.areaXml('rectAlignment="UpperLeft" offsetXY="' .. (col(0) - 8) .. ' ' .. (gTop + 8) .. '"',
+				4 * BW + 3 * GAP + 16, (gTop - gBot) + 16, 4))
+			local fc = ARRANGE.freeCell()
+			table.insert(lines, mbtn(nil, "btn_arrangeEmpty", "Empty spot: move a picked button here", "ghost", "30", "", fc[1], fc[2]))
+		end
 	    -- Row 0: [lineForward] [•] [Flip] [↕]
-		table.insert(lines, mbtn(nil,             "btn_lineForward",  "Move tokens forward (Z axis)",               "dynMod",        "30", "↑",    0, 0))
-	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynGreenBtn",   "30", "•",    1, 0))
-	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "30", "Flip", 2, 0))
-	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "30", "↕",    3, 0))
+		table.insert(lines, mbtn(nil,             "btn_lineForward",  "Move tokens forward (Z axis)",               "dynMod",        "30", "↑", P.forward[1], P.forward[2]))
+	    table.insert(lines, mbtn(nil,             "btn_scaleUp",   "Scale up\nall tokens, or just selected",        "dynGreenBtn",   "30", "•", P.scaleUp[1], P.scaleUp[2]))
+	    table.insert(lines, mbtn(nil,             "btn_flip",      "Flip token\nall tokens, or just selected",      "dynMod",       "30", "Flip", P.flip[1], P.flip[2]))
+	    table.insert(lines, mbtn(nil,             "btn_vertical",  "Toggle vertical\nall tokens, or just selected", "dynMod",       "30", "↕", P.vertical[1], P.vertical[2]))
 
 	    -- Row 1: [⁘] [▲] [▼] [⁛]
-	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynRedBtn", "30", "⁘",    0, 1, 'active="False"'))
-	    table.insert(lines, mbtn(nil,             "btn_heightUp",  "Raise token height\nall tokens, or just selected","dynMod",    "30", "▲",    1, 1))
-	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "30", "▼",    2, 1))
-	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynGreenBtn",  "30", "⁛",    3, 1, 'active="False"'))
+	    table.insert(lines, mbtn("dynSpreadDown", "btn_radiusDown","Decrease spread",                               "dynRedBtn", "30", "⁘", P.spreadDown[1], P.spreadDown[2], 'active="False"'))
+	    table.insert(lines, mbtn(nil,             "btn_heightUp",  "Raise token height\nall tokens, or just selected","dynMod",    "30", "▲", P.heightUp[1], P.heightUp[2]))
+	    table.insert(lines, mbtn(nil,             "btn_heightDown","Lower token height\nall tokens, or just selected","dynMod",    "30", "▼", P.heightDown[1], P.heightDown[2]))
+	    table.insert(lines, mbtn("dynSpreadUp",   "btn_radiusUp",  "Increase spread",                               "dynGreenBtn",  "30", "⁛", P.spreadUp[1], P.spreadUp[2], 'active="False"'))
 
 	    -- Row 2: [lineBackward] [·] [↻] [spacer]
-		table.insert(lines, mbtn(nil,             "btn_lineBackward", "Move tokens backward (Z axis)",              "dynMod",        "30", "↓",    0, 2))
-	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynRedBtn", "30", "·",    1, 2))
-	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "30", "↻",    2, 2))
+		table.insert(lines, mbtn(nil,             "btn_lineBackward", "Move tokens backward (Z axis)",              "dynMod",        "30", "↓", P.backward[1], P.backward[2]))
+	    table.insert(lines, mbtn(nil,             "btn_scaleDown", "Scale down\nall tokens, or just selected",      "dynRedBtn", "30", "·", P.scaleDown[1], P.scaleDown[2]))
+	    table.insert(lines, mbtn(nil,             "btn_rotate",    "Rotate 180°\nall tokens, or just selected",     "dynMod",       "22", "180°", P.rotate[1], P.rotate[2]))
 
 		-- Col 4 (double-gapped): LineUp toggle
 		local isLineUp = modelLineUp[lastSelectedGUID or ""] or false
@@ -2526,7 +2704,7 @@
 		-- Remove All Tokens (OUI): a wide bar ABOVE the modifier grid, from its left edge to Line up's right edge.
 		-- Same two-click confirm and handler as the HUD one (hud_removeTokens).
 		local ouiRemW = col4() + BW - PAD
-		table.insert(lines, '  <Button id="dynRemoveAll"'
+		table.insert(lines, '  <Button id="dynRemoveAll" active="' .. (ARRANGE.on and "False" or "True") .. '"'   -- hidden while arranging
 			.. ' onClick="hud_removeTokens"'
 			.. ' tooltip="Remove ALL tokens from the selected model (click twice to confirm)"'
 			.. ' ' .. btnStyle(REMOVE_ALL_STYLE)
@@ -3010,12 +3188,22 @@
 		local HSGAP = HUD_DYN.sgap
 
 		local function hcol(c) return HPAD + c * HSTEP end
-		local function hrow(r) return -(HPAD + r * HSTEP) end
+		-- Rows at or below the layout's "split" row move down CUSTOM.dynSplitPx for a divider (#101 Layout 3)
+		local function hrow(r)
+			local L = CUSTOM.dynLayouts[CUSTOM.dynLayout]
+			return -(HPAD + r * HSTEP + ((L.split and r >= L.split) and CUSTOM.dynSplitPx or 0))
+		end
 
 		local function hmbtn(id, onClick, tooltip, style, fontSize, label, c, r, extra)
 			local idA = id and ('id="' .. id .. '" ') or ""
 			local exA = extra or ""
 			local s   = BTN_STYLE[style] or BTN_STYLE.ghost
+			-- Arranging the Custom layout (#101): the picked button is white, and every button shows (spread too)
+			local akey = ARRANGE.keyOf[onClick]
+			if ARRANGE.on and akey then
+				if akey == ARRANGE.picked then style = "movePicked" ; s = BTN_STYLE[style] end
+				exA = ""
+			end
 			return '  <Button ' .. idA
 				.. 'onClick="' .. g .. '/' .. onClick .. '" '
 				.. 'tooltip="' .. tooltip .. '" '
@@ -3033,11 +3221,29 @@
 		local HDYN_H = HUD_DYN.panelH
 		local HDYN_W = HUD_DYN.slotX + HUD_DYN.listW + HPAD
 
+		-- ── Layout switch (#101): above where the token buttons appear (x from 136, y 204..224), shown only while
+		-- the CUSTOMISE panel is open, never tied to the token buttons being up. On Custom it shares the row
+		-- with Arrange. Root level (not inside the dynamic panel) so it shows even with no model selected.
+		local isCustom = CUSTOM.dynLayouts[CUSTOM.dynLayout].custom
+		local layW     = isCustom and (HUD_DYN.gridW - 56) or HUD_DYN.gridW
+		local barShow  = (settingsOpen and CUSTOM.open) and "True" or "False"
+		local gridLeft = 128 + HUD_DYN.pad
+		table.insert(lines, '<Button id="TokenApplier_hud_dynLayoutBtn" onClick="' .. g .. '/btn_cycleDynLayout" ' .. btnStyle("settingsItem")
+			.. ' active="' .. barShow .. '" width="' .. layW .. '" height="20" fontSize="9"'
+			.. ' rectAlignment="LowerCenter" offsetXY="' .. (gridLeft + layW / 2) .. ' 204"'
+			.. ' tooltip="Arrangement of the token buttons: Layout 1 (original), Layout 2 (pairs in columns: up on top, down below), Layout 3 (grouped) or Custom (your own). Click to switch">'
+			.. '<Text text="Buttons: ' .. CUSTOM.dynLayouts[CUSTOM.dynLayout].name .. '" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="9" width="' .. layW .. '" height="20" alignment="MiddleCenter" /></Button>')
+		local arStyle = ARRANGE.on and "pressed" or "settingsItem"
+		table.insert(lines, '<Button id="TokenApplier_hud_arrangeBtn" onClick="' .. g .. '/btn_toggleArrange" ' .. btnStyle(arStyle)
+			.. ' active="' .. ((settingsOpen and CUSTOM.open and isCustom) and "True" or "False") .. '" width="52" height="20" fontSize="9"'
+			.. ' rectAlignment="LowerCenter" offsetXY="' .. (gridLeft + HUD_DYN.gridW - 26) .. ' 204"'
+			.. ' tooltip="Arrange: click a token button, then another (or the empty spot), to swap them. Select a model with tokens first">'
+			.. '<Text text="' .. (ARRANGE.on and "Done" or "Arrange") .. '" color="' .. BTN_STYLE[arStyle].textColor .. '" offsetXY="0 ' .. (ARRANGE.on and -1 or 0) .. '" fontSize="9" width="52" height="20" alignment="MiddleCenter" /></Button>')
+
 		table.insert(lines, '<Panel id="TokenApplier_hud_dynPanel"')
-		table.insert(lines, '  showAnimation="Grow"')
-		table.insert(lines, '  hideAnimation="Shrink"')
-		table.insert(lines, '  animationDuration="0.1"')
-		table.insert(lines, '  active="False"')
+		-- While arranging Custom (#101): built open with no Grow/Shrink, so each pick/swap redraw is instant
+		if not ARRANGE.on then table.insert(lines, '  showAnimation="Grow" hideAnimation="Shrink" animationDuration="0.1"') end
+		table.insert(lines, '  active="' .. (ARRANGE.on and "True" or "False") .. '"')
 		table.insert(lines, '  rectAlignment="LowerCenter"')
 		table.insert(lines, '  offsetXY="' .. (128 + HDYN_W/2) .. ' 0"')
 		table.insert(lines, '  width="' .. HDYN_W .. '" height="' .. HDYN_H .. '"')
@@ -3051,20 +3257,36 @@
 			HDYN_W - 2 * (HPAD - dynM), (HDYN_H - HPAD + dynM) - (2 - dynM)))
 
 		-- Mod grid — rows 0-2, cols 0-3
+		-- Positions come from the chosen button layout (#101, CUSTOM.dynLayouts); the "Row" comments below are Layout 1
+		local P = CUSTOM.dynLayouts[CUSTOM.dynLayout]
+		-- Layout 3 divider: in the gap above the split row (same light + dark lines as the Line up divider)
+		if P.split then
+			local mid = math.floor((hrow(P.split - 1) - HBW + hrow(P.split)) / 2)
+			table.insert(lines, '  <Panel width="' .. HUD_DYN.gridW .. '" height="1" color="#8A96B0CC" raycastTarget="false" rectAlignment="UpperLeft" offsetXY="' .. hcol(0) .. ' ' .. mid .. '" />')
+			table.insert(lines, '  <Panel width="' .. HUD_DYN.gridW .. '" height="1" color="#000000AA" raycastTarget="false" rectAlignment="UpperLeft" offsetXY="' .. hcol(0) .. ' ' .. (mid - 1) .. '" />')
+		end
+		-- Arranging Custom (#101): yellow frame round the buttons + a clickable empty spot (the free cell)
+		if ARRANGE.on and P.custom then
+			local gTop, gBot = hrow(0), hrow(2) - HBW
+			table.insert(lines, '  ' .. MOVE.areaXml('rectAlignment="UpperLeft" offsetXY="' .. (hcol(0) - 4) .. ' ' .. (gTop + 4) .. '"',
+				HUD_DYN.gridW + 8, (gTop - gBot) + 8, 2))
+			local fc = ARRANGE.freeCell()
+			table.insert(lines, hmbtn(nil, "btn_arrangeEmpty", "Empty spot: move a picked button here", "ghost", "18", "", fc[1], fc[2]))
+		end
 		-- Row 0: [lineForward] [•] [Flip] [↕]
-		table.insert(lines, hmbtn(nil,                  "btn_lineForward",  "Move forward (Z)", "dynMod",      "18", "↑",    0, 0))
-		table.insert(lines, hmbtn(nil,                  "btn_scaleUp",      "Scale up",         "dynGreenBtn", "18", "•",    1, 0))
-		table.insert(lines, hmbtn(nil,                  "btn_flip",      "Flip token",      "dynMod",      "16", "Flip", 2, 0))
-		table.insert(lines, hmbtn(nil,                  "btn_vertical",  "Toggle vertical", "dynMod",      "18", "↕",    3, 0))
+		table.insert(lines, hmbtn(nil,                  "btn_lineForward",  "Move forward (Z)", "dynMod",      "18", "↑", P.forward[1], P.forward[2]))
+		table.insert(lines, hmbtn(nil,                  "btn_scaleUp",      "Scale up",         "dynGreenBtn", "18", "•", P.scaleUp[1], P.scaleUp[2]))
+		table.insert(lines, hmbtn(nil,                  "btn_flip",      "Flip token",      "dynMod",      "16", "Flip", P.flip[1], P.flip[2]))
+		table.insert(lines, hmbtn(nil,                  "btn_vertical",  "Toggle vertical", "dynMod",      "18", "↕", P.vertical[1], P.vertical[2]))
 		-- Row 1: [⁘] [▲] [▼] [⁛]
-		table.insert(lines, hmbtn("TokenApplier_hud_dynSpreadDown","btn_radiusDown","Decrease spread", "dynRedBtn",   "18", "⁘",    0, 1, 'active="False"'))
-		table.insert(lines, hmbtn(nil,                  "btn_heightUp",  "Raise height",    "dynMod",      "18", "▲",    1, 1))
-		table.insert(lines, hmbtn(nil,                  "btn_heightDown","Lower height",     "dynMod",      "18", "▼",    2, 1))
-		table.insert(lines, hmbtn("TokenApplier_hud_dynSpreadUp", "btn_radiusUp",  "Increase spread", "dynGreenBtn", "18", "⁛",    3, 1, 'active="False"'))
+		table.insert(lines, hmbtn("TokenApplier_hud_dynSpreadDown","btn_radiusDown","Decrease spread", "dynRedBtn",   "18", "⁘", P.spreadDown[1], P.spreadDown[2], 'active="False"'))
+		table.insert(lines, hmbtn(nil,                  "btn_heightUp",  "Raise height",    "dynMod",      "18", "▲", P.heightUp[1], P.heightUp[2]))
+		table.insert(lines, hmbtn(nil,                  "btn_heightDown","Lower height",     "dynMod",      "18", "▼", P.heightDown[1], P.heightDown[2]))
+		table.insert(lines, hmbtn("TokenApplier_hud_dynSpreadUp", "btn_radiusUp",  "Increase spread", "dynGreenBtn", "18", "⁛", P.spreadUp[1], P.spreadUp[2], 'active="False"'))
 		-- Row 2: [lineBackward] [·] [↻] [  ]
-		table.insert(lines, hmbtn(nil,                  "btn_lineBackward", "Move backward (Z)", "dynMod",    "18", "↓",    0, 2))
-		table.insert(lines, hmbtn(nil,                  "btn_scaleDown",    "Scale down",        "dynRedBtn", "18", "·",    1, 2))
-		table.insert(lines, hmbtn(nil,                  "btn_rotate",       "Rotate 180°",       "dynMod",    "18", "↻",    2, 2))
+		table.insert(lines, hmbtn(nil,                  "btn_lineBackward", "Move backward (Z)", "dynMod",    "18", "↓", P.backward[1], P.backward[2]))
+		table.insert(lines, hmbtn(nil,                  "btn_scaleDown",    "Scale down",        "dynRedBtn", "18", "·", P.scaleDown[1], P.scaleDown[2]))
+		table.insert(lines, hmbtn(nil,                  "btn_rotate",       "Rotate 180°",       "dynMod",    "13", "180°", P.rotate[1], P.rotate[2]))
 
 		-- Divider between the modifier grid and the Line up strip (#96). Not clickable.
 		local LINEUP_H = 20   -- same height as the minimise strip
@@ -3091,7 +3313,7 @@
 		-- Remove All Tokens: a short, wide bar right under the token names (what it removes). Its y is
 		-- moved under the last token row by refreshDynamicPanelSlots; built under row 1 as a placeholder.
 		-- Two-click safeguard: first click arms it, second click removes (see hud_removeTokens)
-		table.insert(lines, '  <Button id="TokenApplier_hud_dynRemoveAll" '
+		table.insert(lines, '  <Button id="TokenApplier_hud_dynRemoveAll" active="' .. (ARRANGE.on and "False" or "True") .. '" '   -- hidden while arranging
 			.. 'onClick="' .. g .. '/hud_removeTokens" '
 			.. 'tooltip="Remove ALL tokens from the selected model (click twice to confirm)" '
 			.. btnStyle(REMOVE_ALL_STYLE) .. ' '
@@ -3926,6 +4148,7 @@
 	end
 
 	function btn_heightUp(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_heightUp) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -3933,6 +4156,7 @@
 	end
 
 	function btn_heightDown(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_heightDown) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -3970,6 +4194,7 @@
 	end
 
 	function btn_scaleUp(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_scaleUp) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -3977,6 +4202,7 @@
 	end
 
 	function btn_scaleDown(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_scaleDown) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4009,6 +4235,7 @@
 	end
 
 	function btn_flip(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_flip) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4021,6 +4248,7 @@
 	end
 
 	function btn_rotate(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_rotate) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4033,6 +4261,7 @@
 	end
 
 	function btn_vertical(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_vertical) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4057,6 +4286,7 @@
 	end
 
 	function btn_radiusUp(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_radiusUp) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4064,6 +4294,7 @@
 	end
 
 	function btn_radiusDown(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_radiusDown) return end   -- arranging Custom (#101): move, don't act
 	    playerColor = (type(player) == "userdata" and player.color) or playerColor
 	    local sel = Player[playerColor].getSelectedObjects()
 	    if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4071,6 +4302,7 @@
 	end
 
 	function btn_lineForward(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_lineForward) return end   -- arranging Custom (#101): move, don't act
 		playerColor = (type(player) == "userdata" and player.color) or playerColor
 		local sel = Player[playerColor].getSelectedObjects()
 		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
@@ -4080,6 +4312,7 @@
 	end
 
 	function btn_lineBackward(player, playerColor)
+		if ARRANGE.on then ARRANGE.click(ARRANGE.keyOf.btn_lineBackward) return end   -- arranging Custom (#101): move, don't act
 		playerColor = (type(player) == "userdata" and player.color) or playerColor
 		local sel = Player[playerColor].getSelectedObjects()
 		if #sel == 0 then printToColor("Select a model first.", playerColor, { 1, 1, 1 }) return end
