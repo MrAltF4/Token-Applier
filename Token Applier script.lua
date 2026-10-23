@@ -255,13 +255,67 @@
 			textColor  = "#FFD700",
 			transition = "ColorTint",
 		},
+		-- ── 1.4.2 shared look (TEST on a few HUD buttons first, see btnStyle) ──
+		-- One navy palette like LCT's HUD. A style with an `outline` also gets a thin
+		-- lighter border and rounded edges (`round = true` gives rounded edges alone).
+		-- Keep bordered styles near-solid (F2): TTS's outline is 4 copies
+		-- of the WHOLE button shape (nudged 1px each way) drawn behind it, so a see-through
+		-- body just shows those copies, never the table (tested 1.4.2 at B2 / 70%).
+		lookPrimary = {   -- main action (Add Token)
+			colors     = "#1A5FC8F2|#2A70D8F2|#144CA0F2|#333333AA",
+			textColor  = "#FFFFFF",
+			transition = "ColorTint",
+			outline    = "#6DA8FF",
+		},
+		-- Borders only on the buttons that should stand out most. The quieter ones below have
+		-- no outline, so they can be see-through (B2 ≈ 70%; Solid mode turns them to FF).
+		lookNeutral = {   -- everyday buttons (minimise, settings closed)
+			colors     = "#2A2A3AB2|#3A3A4CB2|#20202EB2|#333333AA",
+			textColor  = "#AFC1D8",
+			transition = "ColorTint",
+			round      = true,
+		},
+		lookTemplate = {  -- Set Template: navy body, keeps its yellow name
+			colors     = "#1A1A2AB2|#2A2A3CB2|#12121EB2|#333333AA",
+			textColor  = "#CCCC44",
+			transition = "ColorTint",
+			round      = true,
+		},
+		lookActive = {    -- "on" state (HUD settings open)
+			colors     = "#15AFCCB2|#1DCEF0B2|#0F8099B2|#333333AA",
+			textColor  = "#FFFFFF",
+			transition = "ColorTint",
+			round      = true,
+		},
 	}
+
+	local LOOK_OUTLINE_SIZE = "1 1"   -- border thickness (x y) for styles with an outline
+
+	-- Rounded background for a Panel. TTS Panels ignore roundEdges/outline (tested 1.4.2), but
+	-- Buttons take them, so the panel goes see-through and this non-clickable Button, placed
+	-- FIRST inside it, is drawn behind the contents. All 4 colour states are the same, so it
+	-- never reacts; raycastTarget="false" lets clicks through to the buttons on top.
+	-- outline is optional (nil = no border, which also keeps a see-through colour see-through)
+	local function roundedPanelBg(width, height, color, outline)
+		local border = outline and (' outline="' .. outline .. '" outlineSize="' .. LOOK_OUTLINE_SIZE .. '"') or ""
+		return '<Button width="' .. width .. '" height="' .. height .. '" raycastTarget="false"'
+			.. ' colors="' .. color .. '|' .. color .. '|' .. color .. '|' .. color .. '"'
+			.. border .. ' roundEdges="true" />'
+	end
+
+	-- HUD ⚙ button styles (1.4.2 look test). The OUI ⚙ keeps "settings" / "active".
+	local HUD_SETTINGS_CLOSED_STYLE = "lookNeutral"
+	local HUD_SETTINGS_OPEN_STYLE   = "lookActive"
 
 	local function btnStyle(name)
 	    local s = BTN_STYLE[name] or BTN_STYLE.ghost
+	    local look = ""
+	    if s.outline then look = ' outline="' .. s.outline .. '" outlineSize="' .. LOOK_OUTLINE_SIZE .. '"' end
+	    if s.outline or s.round then look = look .. ' roundEdges="true"' end
 	    return 'colors="'     .. s.colors     .. '" '
 	        .. 'textColor="'  .. s.textColor  .. '" '
 	        .. 'transition="' .. s.transition .. '"'
+	        .. look
 	end
 
 	-- Live-updates a button whose label is a child Text with id "<id>_text".
@@ -1140,7 +1194,8 @@
 		local sStyle = BTN_STYLE[settingsOpen and "active" or "settings"]
 		self.UI.setAttribute("settingsBtn", "colors",    sStyle.colors)
 		self.UI.setAttribute("settingsBtn", "textColor", sStyle.textColor)
-		UI.setAttribute("TokenApplier_hud_settings", "colors", sStyle.colors)
+		UI.setAttribute("TokenApplier_hud_settings", "colors",
+			BTN_STYLE[settingsOpen and HUD_SETTINGS_OPEN_STYLE or HUD_SETTINGS_CLOSED_STYLE].colors)
 		-- (No setAttribute "active" on panels here: it skips the Grow/Shrink animation that show()/hide() play)
 	end
 	
@@ -1869,10 +1924,12 @@
 		-- Add Token button
 		table.insert(lines, '    <Button id="TokenApplier_hud_add"')
 		table.insert(lines, '      onClick="' .. g .. '/hud_addToken"')
-		table.insert(lines, '      ' .. btnStyle("hudAdd"))
+		table.insert(lines, '      ' .. btnStyle("lookPrimary"))   -- 1.4.2 look test
 		table.insert(lines, '      fontSize="18" preferredWidth="225" preferredHeight="44"')
-		table.insert(lines, '      tooltip="Add token to selected model"')
-		table.insert(lines, '      >＋ Add Token</Button>')
+		table.insert(lines, '      tooltip="Add token to selected model">')
+		-- 1.4.2 look test: text shadow on a bright button (needs a <Text> child; a shadow on the
+		-- Button itself would shadow the button shape, not the words)
+		table.insert(lines, '      <Text text="＋ Add Token" color="' .. BTN_STYLE.lookPrimary.textColor .. '" shadow="#000000CC" shadowDistance="1 -1" fontSize="18" width="225" height="44" alignment="MiddleCenter" /></Button>')
 
 		-- History grid (2 rows × 4 cols)
 		table.insert(lines, '    <GridLayout id="TokenApplier_hud_grid"')
@@ -1976,7 +2033,7 @@
 	    table.insert(lines, '  offsetXY="14 2"')
 	    table.insert(lines, '  width="197" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleVisible"')
-	    table.insert(lines, '  ' .. btnStyle("hudHide"))
+	    table.insert(lines, '  ' .. btnStyle("lookNeutral"))   -- 1.4.2 look test
 	    table.insert(lines, '  fontSize="12"')
 	    table.insert(lines, '  tooltip="Minimise HUD"')
 	    table.insert(lines, '  >— minimise —</Button>')
@@ -1987,7 +2044,7 @@
 	    table.insert(lines, '  offsetXY="-99.5 2"')
 	    table.insert(lines, '  width="26" height="26"')
 	    table.insert(lines, '  onClick="' .. g .. '/hud_toggleSettings"')
-	    table.insert(lines, '  ' .. btnStyle(settingsOpen and "active" or "settings"))
+	    table.insert(lines, '  ' .. btnStyle(settingsOpen and HUD_SETTINGS_OPEN_STYLE or HUD_SETTINGS_CLOSED_STYLE))   -- 1.4.2 look test
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Settings"')
 		local ss = BTN_STYLE.settings
@@ -2023,10 +2080,10 @@
 	    table.insert(lines, '  offsetXY="0 190"')  -- old loaction offsetXY="-200 145"'
 	    table.insert(lines, '  width="160" height="30"')
 	    table.insert(lines, '  onClick="' .. g .. '/btn_setTemplate"')
-	    table.insert(lines, '  ' .. btnStyle("template"))
+	    table.insert(lines, '  ' .. btnStyle("lookTemplate"))   -- 1.4.2 look test
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Set token template from selected object">')
-	    table.insert(lines, '  <Text id="TokenApplier_hud_setTemplate_text" text="' .. xmlEscape(hudTemplateLabel()):gsub("\n", "&#10;") .. '" color="' .. BTN_STYLE.template.textColor .. '" fontSize="14" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="14" width="160" height="30" alignment="MiddleCenter" /></Button>')   -- best fit: 2-line names shrink to fit the 30px height instead of losing line 2
+	    table.insert(lines, '  <Text id="TokenApplier_hud_setTemplate_text" text="' .. xmlEscape(hudTemplateLabel()):gsub("\n", "&#10;") .. '" color="' .. BTN_STYLE.lookTemplate.textColor .. '" shadow="#000000AA" shadowDistance="1 -1" fontSize="14" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="14" width="160" height="30" alignment="MiddleCenter" /></Button>')   -- best fit: 2-line names shrink to fit the 30px height instead of losing line 2
 		
 		-- ── Size warning ──
 		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large" or "⚠ Large object"
@@ -2059,7 +2116,8 @@
 	    table.insert(lines, '  rectAlignment="LowerCenter"')
 		table.insert(lines, '  offsetXY="-192 61"')
 	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
-		table.insert(lines, '  color="' .. op("#2B1A00F2") .. '">')
+		table.insert(lines, '  color="#00000000">')   -- see-through: the rounded background below does the colour
+		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op("#2B1A00F2")))   -- 1.4.2 look test
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
 	    table.insert(lines, '    <Text text="Token History" color="' .. BTN_STYLE.template.textColor .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="112" preferredHeight="14" />')
 	    -- Edit History
