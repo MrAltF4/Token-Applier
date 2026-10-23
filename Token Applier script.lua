@@ -39,10 +39,15 @@
 
 	}
 	local REMOVE_ALL_LABEL    = "X Remove All Tokens from Model"   -- plain X matches "X Clear History" (🗑 doesn't render in TTS)
-	local REMOVE_ALL_STYLE    = "settingsItem"   -- normal state: same yellow as the settings buttons
+	local REMOVE_ALL_STYLE    = "caution"        -- normal state: yellow, "careful, this removes things"
 	local REMOVE_ARMED_STYLE  = "hudRemove"      -- "Sure?" state: red, so the change pops
 	local CLEAR_HISTORY_LABEL = "X Clear All History"
-	local CLEAR_HISTORY_STYLE = "settingsItem"   -- normal: yellow (only visible while Edit History is live)
+	local CLEAR_HISTORY_STYLE = "caution"        -- normal: yellow (only visible while Edit History is live)
+	local EDIT_OFF_STYLE      = "settingsItem"   -- Edit History button: grey like the other settings
+	local EDIT_ON_STYLE       = "caution"        -- "Stop Editing History": yellow (#92; was red)
+	-- Settings groups (#90): grey, so standard settings don't draw the eye like yellow did
+	local SETTINGS_PANEL_COLOR = "#1C1F28F2"     -- background of the Token History / HUD groups
+	local SETTINGS_TITLE_COLOR = "#AFC1D8"       -- group titles ("Token History", "Token Creation")
 	local CLEAR_ARMED_STYLE   = "danger"         -- "Sure?" state: red
 	local HUD_CLEAR_LABEL     = "X Clear All History"     -- HUD wording for the same buttons
 	local HUD_EDIT_OFF_LABEL  = "Edit History"
@@ -131,10 +136,15 @@
 	    },
 	    settings = {
 	        colors     = "#000000F2|#222222F2|#111111F2|#333333AA",
-	        textColor  = "#FDFF6F",
+	        textColor  = "#D8DCE6",   -- ⚙ icon: light grey (#90; was yellow)
 	        transition = "ColorTint",
 	    },
-	    settingsItem = {
+	    settingsItem = {   -- everyday settings buttons: slate grey (#90; was olive yellow)
+	        colors     = "#33394AF2|#454C60F2|#262B38F2|#333333AA",
+	        textColor  = "#FFFFFF",
+	        transition = "ColorTint",
+	    },
+	    caution = {        -- "careful" actions (Remove All, Clear History, Stop Editing): the old olive yellow
 	        colors     = "#484716F2|#6B6B22F2|#303010F2|#333333AA",
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
@@ -844,7 +854,7 @@
 			self.UI.hide("deleteOverlayPanel")
 			UI.hide("TokenApplier_hud_deleteOverlayPanel")
 		end
-		local style = on and "danger" or "settingsItem"
+		local style = on and EDIT_ON_STYLE or EDIT_OFF_STYLE
 		setButtonLook(self.UI, "editHistoryBtn", on and "←Stop Editing History" or "Edit History", style)
 		self.UI.setAttribute("clearHistoryBtn", "active", on and "True" or "False")
 		-- HUD versions
@@ -1614,10 +1624,10 @@
 		table.insert(lines, '  position="-350 -352 -20"')
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="222" height="172"')  -- title 20 + 3 rows × 44 + 3 gaps × 4 + 8 padding
-		table.insert(lines, '  color="' .. op("#2B1A00F2") .. '">')
+		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
-		table.insert(lines, '    <Text text="Token History" color="' .. BTN_STYLE.template.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="214" preferredHeight="20" />')
-		local eStyle = historyEditMode and "danger" or "settingsItem"
+		table.insert(lines, '    <Text text="Token History" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="214" preferredHeight="20" />')
+		local eStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
 		table.insert(lines, '    <Button id="editHistoryBtn" onClick="btn_toggleHistoryEdit" tooltip="Toggle delete mode on history slots" ' .. btnStyle(eStyle) .. ' fontSize="20" preferredWidth="214" preferredHeight="44"><Text id="editHistoryBtn_text" text="' .. (historyEditMode and "←Stop Editing History" or "Edit History") .. '" color="' .. BTN_STYLE[eStyle].textColor .. '" fontSize="20" /></Button>')
 		-- Default token scale (moved here from the main settings panel)
 		-- Stepper layout: label on the left, [–][+] side by side on the right
@@ -1648,7 +1658,7 @@
 		table.insert(lines, '  width="216" height="160"')  -- title 20 + 3 rows × 40 + 3 gaps × 4 + 8 padding
 		table.insert(lines, '  color="' .. op("#1A1A1AF2") .. '">')
 		table.insert(lines, '  <VerticalLayout spacing="4" padding="4 4 4 4" childAlignment="UpperCenter">')
-		table.insert(lines, '    <Text text="Token Creation" color="' .. BTN_STYLE.template.textColor .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="208" preferredHeight="20" />')
+		table.insert(lines, '    <Text text="Token Creation" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="208" preferredHeight="20" />')
 		table.insert(lines, '    <Button onClick="btn_toggleSetTemplate"')
 		table.insert(lines, '      tooltip="Show or hide the Set Template button"')
 		table.insert(lines, '      ' .. btnStyle(hideSetTemplate and "danger" or "toggleOn"))
@@ -1677,7 +1687,7 @@
 		table.insert(lines, '  position="-460 -475 -25"')
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="448" height="58"') 	-- 1 row × 50 + 8 padding
-		table.insert(lines, '  color="' .. op("#484716F2") .. '">')
+		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
 		-- [ HUD: ON (290) ][ Opaque (146) ] — 290 + 4 gap + 146 = 440 (panel 448 − 8 padding)
 		table.insert(lines, '  <HorizontalLayout spacing="4" padding="4 4 4 4" childAlignment="MiddleCenter">')
 		local hStyle = hudOff and "danger" or "toggleOn"
@@ -2117,11 +2127,11 @@
 		table.insert(lines, '  offsetXY="-192 61"')
 	    table.insert(lines, '  width="120" height="115"') 	-- 4 pad + title 14 + 3 rows × 28 + 3 gaps × 3 + 4 pad
 		table.insert(lines, '  color="#00000000">')   -- see-through: the rounded background below does the colour
-		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op("#2B1A00F2")))   -- 1.4.2 look test
+		table.insert(lines, '  ' .. roundedPanelBg(120, 115, op(SETTINGS_PANEL_COLOR)))   -- 1.4.2 look test
 	    table.insert(lines, '  <VerticalLayout spacing="3" padding="4 4 4 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
-	    table.insert(lines, '    <Text text="Token History" color="' .. BTN_STYLE.template.textColor .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="112" preferredHeight="14" />')
+	    table.insert(lines, '    <Text text="Token History" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="10" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="112" preferredHeight="14" />')
 	    -- Edit History
-	    local heStyle = historyEditMode and "danger" or "settingsItem"
+	    local heStyle = historyEditMode and EDIT_ON_STYLE or EDIT_OFF_STYLE
 	    table.insert(lines, '    <Button id="TokenApplier_hud_editHistoryBtn" onClick="' .. g .. '/btn_toggleHistoryEdit"')
 	    table.insert(lines, '      ' .. btnStyle(heStyle))
 	    table.insert(lines, '      preferredWidth="112" preferredHeight="28"')
