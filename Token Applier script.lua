@@ -180,6 +180,11 @@
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
+	    histSelected = {   -- selected history slot: colours rebuilt from the chosen colour (CUSTOM, #102)
+	        colors     = "#15AFCCF2|#1DCEF0F2|#0F8099F2|#333333AA",
+	        textColor  = "#FFFFFF",
+	        transition = "ColorTint",
+	    },
 	    ghost = {
 	        colors     = "#080808B2|#141414CC|#050505B2|#333333AA",
 	        textColor  = "#404040",
@@ -399,6 +404,70 @@
 	end
 
 -- ──────────────────────────────────────────────────────────────
+--  CUSTOMISE  (1.4.3: its own panel, opened from settings, so normal settings stay simple)
+--  First option: the selection colour (#102) for the selected history slot + selected token name.
+-- ──────────────────────────────────────────────────────────────
+
+	local CUSTOM = {
+		open         = false,       -- customise panel showing (not saved, like settings)
+		selectColor  = "#15AFCC",   -- chosen selection colour (saved)
+		defaultColor = "#15AFCC",
+		presets = {                 -- one-click picks, rainbow order (cyan = default)
+			{ name = "Red",    hex = "#E53935" },
+			{ name = "Orange", hex = "#FB8C00" },
+			{ name = "Yellow", hex = "#FDD835" },
+			{ name = "Green",  hex = "#43A047" },
+			{ name = "Cyan",   hex = "#15AFCC" },
+			{ name = "Blue",   hex = "#1E63D6" },
+			{ name = "Purple", hex = "#8E24AA" },
+			{ name = "Pink",   hex = "#D81B60" },
+		},
+	}
+
+	-- "#RRGGBB" / "rrggbb" (spaces ignored) → "#RRGGBB", or nil if it isn't a colour
+	function CUSTOM.cleanHex(s)
+		s = tostring(s or ""):gsub("%s", ""):upper()
+		if s:sub(1, 1) ~= "#" then s = "#" .. s end
+		if s:match("^#%x%x%x%x%x%x$") then return s end
+		return nil
+	end
+
+	-- One colour → a button's 4 states: normal, hover (a bit lighter), pressed (darker), disabled
+	function CUSTOM.buttonColors(hex, alpha)
+		local rgb = { tonumber(hex:sub(2, 3), 16), tonumber(hex:sub(4, 5), 16), tonumber(hex:sub(6, 7), 16) }
+		local function shade(f)   -- f > 0 lightens towards white, f < 0 darkens towards black
+			local out = {}
+			for k, c in ipairs(rgb) do
+				out[k] = math.floor((f > 0 and (c + (255 - c) * f) or (c * (1 + f))) + 0.5)
+			end
+			return string.format("#%02X%02X%02X%s", out[1], out[2], out[3], alpha)
+		end
+		return shade(0) .. "|" .. shade(0.2) .. "|" .. shade(-0.3) .. "|#333333AA"
+	end
+
+	-- One preset swatch button (OUI or HUD). The chosen colour gets a white ring (outline is fine
+	-- here: swatches are fully solid). size = extra size/layout attributes for that UI.
+	function CUSTOM.swatchXml(id, onClick, i, size, ring)
+		local p = CUSTOM.presets[i]
+		local picked = (p.hex == CUSTOM.selectColor)
+		return '<Button id="' .. id .. '" onClick="' .. onClick .. '" tooltip="' .. p.name .. '"'
+			.. ' colors="' .. CUSTOM.buttonColors(p.hex, "FF") .. '" transition="ColorTint" roundEdges="true" ' .. size
+			.. (picked and (' outline="#FFFFFF" outlineSize="' .. ring .. '"') or '') .. ' />'
+	end
+
+	-- Puts the chosen colour into the selected-slot styles (history + token panel), then re-applies
+	-- Opaque mode on top. Call after loading and after every change; builds and refreshes read BTN_STYLE.
+	function CUSTOM.applySelectColor()
+		local hist = CUSTOM.buttonColors(CUSTOM.selectColor, "F2")
+		local dyn  = CUSTOM.buttonColors(CUSTOM.selectColor, "E6")
+		BTN_STYLE_ORIGINAL.histSelected    = hist
+		BTN_STYLE_ORIGINAL.dynSlotSelected = dyn
+		BTN_STYLE.histSelected.colors      = hist
+		BTN_STYLE.dynSlotSelected.colors   = dyn
+		applyOpacity()
+	end
+
+-- ──────────────────────────────────────────────────────────────
 --  IMAGE URL EXTRACTION
 -- ──────────────────────────────────────────────────────────────
 
@@ -549,6 +618,7 @@
 				uiOpaque            = uiOpaque,
 				hudOff              = hudOff,
 				debugOpen           = debugOpen,
+				selectColor         = CUSTOM.selectColor,
 			}
 			self.script_state = JSON.encode(blob)
 			-- Keep each token's own stamp in sync with the notebook
@@ -588,6 +658,7 @@
 		if type(data.uiOpaque) == "boolean" then uiOpaque = data.uiOpaque end
 		if type(data.hudOff) == "boolean" then hudOff = data.hudOff end
 		if type(data.debugOpen) == "boolean" then debugOpen = data.debugOpen end
+		CUSTOM.selectColor = CUSTOM.cleanHex(data.selectColor) or CUSTOM.defaultColor
 		-- Upgrade history from older saves (adds size info, name-only display)
 		for _, entry in ipairs(tokenHistory) do prepareHistoryEntry(entry) end
 	    refreshTemplateCache()
@@ -1143,7 +1214,7 @@
 	local function syncHudSettings(instant)
 		local ids = { "TokenApplier_hud_settingsPanel", "TokenApplier_hud_off", "TokenApplier_hud_placeBtn",
 			"TokenApplier_hud_dragToggleBtn", "TokenApplier_hud_opacityBtn", "TokenApplier_hud_templateVis",
-			"TokenApplier_hud_debugToggle" }
+			"TokenApplier_hud_debugToggle", "TokenApplier_hud_customiseToggle" }
 		-- Debug buttons: only while settings AND the Debug toggle are on (#99)
 		local debugIds = { "TokenApplier_hud_restore_tokens", "TokenApplier_hud_find_tokens", "TokenApplier_hud_debug_ids" }
 		local function setShown(id, on)
@@ -1153,6 +1224,7 @@
 		end
 		for _, id in ipairs(ids) do setShown(id, settingsOpen) end
 		for _, id in ipairs(debugIds) do setShown(id, settingsOpen and debugOpen) end
+		setShown("TokenApplier_hud_customisePanel", settingsOpen and CUSTOM.open)
 		setShown("TokenApplier_hud_deleteOverlayPanel", historyEditMode)
 		UI.setAttribute("TokenApplier_hud_clearHistoryBtn", "active", historyEditMode and "True" or "False")
 		UI.setAttribute("TokenApplier_hud_settings", "colors",
@@ -1298,13 +1370,21 @@
 			self.UI.show("clearHistoryPanel")
 			self.UI.show("templateSettingsPanel")
 			self.UI.show("debugToggleBtn")
+			self.UI.show("customiseToggleBtn")
 			if debugOpen then self.UI.show("debugSettingsPanel") end   -- debug buttons only with the Debug toggle on (#99)
 		else
 			self.UI.hide("settingsPanel")
 			self.UI.hide("clearHistoryPanel")
 			self.UI.hide("templateSettingsPanel")
 			self.UI.hide("debugToggleBtn")
+			self.UI.hide("customiseToggleBtn")
 			if debugOpen then self.UI.hide("debugSettingsPanel") end
+			if CUSTOM.open then   -- closing settings closes the customise panel too
+				CUSTOM.open = false
+				self.UI.hide("customisePanel")
+				setButtonLook(self.UI, "customiseToggleBtn", nil, "settingsItem")   -- was left green
+				setHudButtonLook("TokenApplier_hud_customiseToggle", nil, "settingsItem")
+			end
 		end
 		-- HUD side (also recolours the HUD ⚙). While minimised, restore catches it up instead.
 		if hudVisible then syncHudSettings() end
@@ -1322,6 +1402,45 @@
 		saveState()
 		rebuildXML()
 		rebuildHUD()
+	end
+
+	-- Customise panel (1.4.3): opened from settings. Rebuilds like the other toggles.
+	function btn_toggleCustomise(_, _)
+		CUSTOM.open = not CUSTOM.open
+		rebuildXML()
+		rebuildHUD()
+	end
+
+	-- Selection colour (#102): a new colour rebuilds both UIs in it (every build reads BTN_STYLE)
+	local function setSelectColor(hex)
+		if not hex or hex == CUSTOM.selectColor then return end
+		CUSTOM.selectColor = hex
+		CUSTOM.applySelectColor()
+		saveState()
+		rebuildXML()
+		rebuildHUD()
+	end
+
+	-- A preset swatch. The swatch ids end in _<preset number> (OUI "selColor_3", HUD "TokenApplier_hud_selColor_3").
+	function btn_selectColorPreset(player, _, id)
+		local p = CUSTOM.presets[tonumber(tostring(id):match("selColor_(%d+)$") or "")]
+		if p then setSelectColor(p.hex) end
+	end
+
+	-- The hex box: typed colour applied when the player presses Enter or clicks away.
+	-- Not a colour → tell that player and put the box back.
+	function btn_selectColorHex(player, value, _)
+		local hex = CUSTOM.cleanHex(value)
+		if hex then setSelectColor(hex) return end
+		local color = (type(player) == "userdata" and player.color) or nil
+		if color then printToColor("Not a colour: \"" .. tostring(value) .. "\". Use a hex code like #15AFCC.", color, { 1, 0.6, 0.3 }) end
+		rebuildXML()
+		rebuildHUD()
+	end
+
+	-- Back to the shipped cyan
+	function btn_selectColorReset(_, _)
+		setSelectColor(CUSTOM.defaultColor)
 	end
 
 	-- SetTemplate button toggle
@@ -1493,7 +1612,7 @@
 		for i = 1, HISTORY_SLOTS do
 			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
-			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
+			local style    = isActive and "histSelected" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
 			local txtLabel = ouiHistLabel(entry)
@@ -1632,7 +1751,7 @@
 	   for i = 1, HISTORY_SLOTS do
 			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
-			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
+			local style    = isActive and "histSelected" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
 			local txtLabel = ouiHistLabel(entry)
@@ -1826,6 +1945,37 @@
 		table.insert(lines, '      fontSize="18" preferredWidth="146" preferredHeight="50"')
 		table.insert(lines, '      ><Text text="' .. (uiOpaque and "Opaque: ON" or "Opaque: OFF") .. '" color="' .. BTN_STYLE[oStyle].textColor .. '" fontSize="18" /></Button>')
 		table.insert(lines, '  </HorizontalLayout>')
+		table.insert(lines, '</Panel>')
+
+		-- ── Customise (1.4.3): button above Token Creation; panel above it, in the space left of Add Token ──
+		--   Customise button  x -684..-468  y -222..-258      Customise panel  x -684..-236  y -82..-218
+		local cusStyle = CUSTOM.open and "toggleOn" or "settingsItem"
+		table.insert(lines, '<Button id="customiseToggleBtn" onClick="btn_toggleCustomise"')
+		table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+		table.insert(lines, '  tooltip="Customise: look and feel options (selection colour, ...)"')
+		table.insert(lines, '  ' .. btnStyle(cusStyle))
+		table.insert(lines, '  position="-576 -240 -25" rotation="0 0 0" width="216" height="36" fontSize="18">')
+		table.insert(lines, '  <Text id="customiseToggleBtn_text" text="Customise" color="' .. BTN_STYLE[cusStyle].textColor .. '" fontSize="18" width="216" height="36" alignment="MiddleCenter" /></Button>')
+
+		table.insert(lines, '<Panel id="customisePanel"')
+		table.insert(lines, '  active="' .. ((settingsOpen and CUSTOM.open) and "True" or "False") .. '"')
+		table.insert(lines, '  position="-460 -150 -20" rotation="0 0 0" width="448" height="136"')
+		table.insert(lines, '  color="' .. op(SETTINGS_PANEL_COLOR) .. '">')
+		table.insert(lines, '  <VerticalLayout spacing="6" padding="8 8 8 8" childAlignment="UpperCenter" childForceExpandHeight="false">')
+		table.insert(lines, '    <Text text="Selection colour" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="14" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="432" preferredHeight="20" />')
+		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="44">')
+		for i = 1, #CUSTOM.presets do
+			table.insert(lines, '      ' .. CUSTOM.swatchXml('selColor_' .. i, 'btn_selectColorPreset', i, 'preferredWidth="47" preferredHeight="44"', "3 3"))
+		end
+		table.insert(lines, '    </HorizontalLayout>')
+		table.insert(lines, '    <HorizontalLayout spacing="6" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="40">')
+		table.insert(lines, '      <InputField id="selColorHex" onEndEdit="btn_selectColorHex" text="' .. CUSTOM.selectColor .. '"'
+			.. ' characterLimit="7" fontSize="20" color="#FFFFFF" textColor="#10141E" placeholder="#15AFCC"'
+			.. ' tooltip="Type a colour as a hex code (e.g. #15AFCC), then press Enter" preferredWidth="200" preferredHeight="40" />')
+		table.insert(lines, '      <Button onClick="btn_selectColorReset" ' .. btnStyle("settingsItem") .. ' fontSize="18" tooltip="Back to the default cyan" preferredWidth="100" preferredHeight="40">'
+			.. '<Text text="Reset" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="18" width="100" height="40" alignment="MiddleCenter" /></Button>')
+		table.insert(lines, '    </HorizontalLayout>')
+		table.insert(lines, '  </VerticalLayout>')
 		table.insert(lines, '</Panel>')
 
 		-- ── Debug toggle + Debug Settings panel (bottom; grey so it doesn't draw the eye) (#99) ──
@@ -2099,7 +2249,7 @@
 	    for i = 1, HISTORY_SLOTS do
 			local entry    = tokenHistory[histIndex(i)]
 			local isActive = entry and (templateJSON == entry.json)
-			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
+			local style    = isActive and "histSelected" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
 			local txtLabel = hudHistLabel(entry)
@@ -2368,6 +2518,37 @@
 	    table.insert(lines, '  fontSize="9"')
 	    table.insert(lines, '  tooltip="' .. (debugOpen and "Debug: ON. Click to hide the debug buttons" or "Debug: OFF. Click to show the debug buttons") .. '">')
 	    table.insert(lines, '  <Text text="Debug" color="' .. BTN_STYLE[hDbgStyle].textColor .. '" fontSize="9" width="42" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
+
+	    -- ── Customise (1.4.3): button right above the Token History panel; its panel opens above that ──
+	    --   Customise button  x -252..-132  y 210..236        Customise panel  x -252..-132  y 240..350
+	    local hCusStyle = CUSTOM.open and "toggleOn" or "settingsItem"
+	    table.insert(lines, '<Button id="TokenApplier_hud_customiseToggle"')
+	    table.insert(lines, '  active="' .. (settingsOpen and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-192 210" width="120" height="26"')
+	    table.insert(lines, '  onClick="' .. g .. '/btn_toggleCustomise" ' .. btnStyle(hCusStyle) .. ' fontSize="9"')
+	    table.insert(lines, '  tooltip="Customise: look and feel options (selection colour, ...)">')
+	    table.insert(lines, '  <Text id="TokenApplier_hud_customiseToggle_text" text="Customise" color="' .. BTN_STYLE[hCusStyle].textColor .. '" fontSize="9" width="120" height="26" horizontalOverflow="Overflow" alignment="MiddleCenter" /></Button>')
+
+	    table.insert(lines, '<Panel id="TokenApplier_hud_customisePanel"')
+	    table.insert(lines, '  active="' .. ((settingsOpen and CUSTOM.open) and "True" or "False") .. '"')
+	    table.insert(lines, '  rectAlignment="LowerCenter" offsetXY="-192 240" width="120" height="110" color="#00000000">')
+	    table.insert(lines, '  ' .. roundedPanelBg(120, 110, op(SETTINGS_PANEL_COLOR)))
+	    table.insert(lines, '  <VerticalLayout spacing="4" padding="2 2 2 4" childAlignment="UpperCenter" childForceExpandHeight="false">')
+	    table.insert(lines, '    <Text text="Selection colour" color="' .. SETTINGS_TITLE_COLOR .. '" fontSize="9" fontStyle="Bold" alignment="MiddleCenter" preferredWidth="116" preferredHeight="12" />')
+	    table.insert(lines, '    <GridLayout cellSize="26 26" spacing="4 4" startCorner="UpperLeft" startAxis="Horizontal" childAlignment="UpperLeft" preferredWidth="116" preferredHeight="56">')
+	    for i = 1, #CUSTOM.presets do
+	        table.insert(lines, '      ' .. CUSTOM.swatchXml('TokenApplier_hud_selColor_' .. i, g .. '/btn_selectColorPreset', i, 'width="26" height="26"', "2 2"))
+	    end
+	    table.insert(lines, '    </GridLayout>')
+	    table.insert(lines, '    <HorizontalLayout spacing="4" childAlignment="MiddleCenter" childForceExpandWidth="false" preferredHeight="26">')   -- 26: an InputField keeps ~13px padding; at 22 its text was cut off
+	    table.insert(lines, '      <InputField id="TokenApplier_hud_selColorHex" onEndEdit="' .. g .. '/btn_selectColorHex" text="' .. CUSTOM.selectColor .. '"'
+	        .. ' characterLimit="7" fontSize="9" color="#FFFFFF" textColor="#10141E" placeholder="#15AFCC"'
+	        .. ' tooltip="Type a colour as a hex code (e.g. #15AFCC), then press Enter" preferredWidth="62" preferredHeight="26" />')
+	    table.insert(lines, '      <Button onClick="' .. g .. '/btn_selectColorReset" ' .. btnStyle("settingsItem") .. ' fontSize="9" tooltip="Back to the default cyan" preferredWidth="50" preferredHeight="26">'
+	        .. '<Text text="Reset" color="' .. BTN_STYLE.settingsItem.textColor .. '" fontSize="9" width="50" height="26" alignment="MiddleCenter" /></Button>')
+	    table.insert(lines, '    </HorizontalLayout>')
+	    table.insert(lines, '  </VerticalLayout>')
+	    table.insert(lines, '</Panel><!--TokenApplier_hud_customisePanel-->')
 
 	    -- ── Set Template button visibility toggle ──
 	    table.insert(lines, '<Button id="TokenApplier_hud_templateVis"')
@@ -3178,6 +3359,7 @@
 	function onLoad()
 	    myGUID = self.getGUID()
 	    loadState()
+	    CUSTOM.applySelectColor()      -- saved selection colour (also runs applyOpacity)
 	    applyOpacity()                 -- before the UIs are built, so they're drawn in the saved mode
 	    historyPage = pageOfActive()   -- open on the page holding the selected template, so it's on screen
 	    checkImageFormats()   -- test any history images not checked yet (e.g. from older saves)
