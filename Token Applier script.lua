@@ -144,6 +144,13 @@
 	        textColor  = "#FFFFFF",
 	        transition = "ColorTint",
 	    },
+	    deleteSlot = {     -- Edit History overlay on each slot: 40% so the token underneath shows through.
+	                       -- keepAlpha: Solid mode leaves it see-through (the overlay is useless solid)
+	        colors     = "#2B0D0D66|#5A1A1A99|#1F0A0A66|#333333AA",
+	        textColor  = "#FF6060",
+	        transition = "ColorTint",
+	        keepAlpha  = true,
+	    },
 	    caution = {        -- "careful" actions (Remove All, Clear History, Stop Editing): the old olive yellow
 	        colors     = "#484716F2|#6B6B22F2|#303010F2|#333333AA",
 	        textColor  = "#FFFFFF",
@@ -369,12 +376,14 @@
 	-- left as shipped.
 	local function applyOpacity()
 		for name, s in pairs(BTN_STYLE) do
-			local parts, i = {}, 0
-			for part in BTN_STYLE_ORIGINAL[name]:gmatch("[^|]+") do
-				i = i + 1
-				parts[i] = (i < 4) and op(part) or part
+			if not s.keepAlpha then   -- deliberately see-through styles stay as shipped
+				local parts, i = {}, 0
+				for part in BTN_STYLE_ORIGINAL[name]:gmatch("[^|]+") do
+					i = i + 1
+					parts[i] = (i < 4) and op(part) or part
+				end
+				s.colors = table.concat(parts, "|")
 			end
-			s.colors = table.concat(parts, "|")
 		end
 	end
 
@@ -752,9 +761,33 @@
 		return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"))
 	end
 
+	-- xmlEscape + line breaks kept: a raw "\n" inside an XML attribute is read back as a space,
+	-- so multi-line labels built into the XML need it written as &#10;
+	local function xmlAttrText(s)
+		return (xmlEscape(s):gsub("\n", "&#10;"))
+	end
+
 	-- The HUD Set Template button's label (the current template's name, or "No Template")
 	local function hudTemplateLabel()
 		return templateJSON and shortName(stripBBCode(templateCache.name), 20, 2) or "No Template"
+	end
+
+	-- ── History slot look (#93 #31 #95 #79) ──
+	-- Images sit a little inside the slot so the slot's colour (e.g. the "selected" blue) shows
+	-- as a frame around them. Slot size − image size = frame on both sides.
+	-- (One table, not separate locals: this file is near Lua's 200-locals-per-chunk limit.)
+	local HIST_LOOK = {
+		hudImg  = 46,   -- HUD slot is 54  → 4px frame each side (was 50 → 2px)
+		ouiImg  = 92,   -- OUI slot is 110 → 9px frame each side (was 100 → 5px)
+		-- Name shown on slots with no image: small text, more characters per line, shrinks to fit
+		hudFont = 9,    -- was 14 (about 40% smaller)
+		ouiFont = 12,   -- was 20
+	}
+	local function hudHistLabel(entry)
+		return entry and shortName(stripBBCode(entry.name), 8, 3) or "·"
+	end
+	local function ouiHistLabel(entry)
+		return entry and shortName(stripBBCode(entry.name), 9, 3) or "·"
 	end
 
 	-- Shows/hides the "Large / Very large object" banner on BOTH the OUI and the HUD to
@@ -1379,9 +1412,9 @@
 			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
-			local txtLabel = entry and shortName(stripBBCode(entry.name), 5, 3) or "·"
+			local txtLabel = ouiHistLabel(entry)
 			local txtColor = entry and "#FFFFFF" or "#404040"
-			local hudLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
+			local hudLabel = hudHistLabel(entry)
 			local hudColor = entry and "#FFFFFF" or "#303030"
 			local sc       = entry and sizeClass(entry.byteSize)
 
@@ -1517,9 +1550,8 @@
 			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
-			local txtLabel = entry and shortName(stripBBCode(entry.name), 5, 3) or "·"
+			local txtLabel = ouiHistLabel(entry)
 			local txtColor = entry and "#FFFFFF" or "#404040"
-			local txtSize  = entry and "20" or "20"
 			local sc       = entry and sizeClass(entry.byteSize)
 			local tooltipText = historyTooltip(entry)
 
@@ -1531,15 +1563,16 @@
 			table.insert(lines, '      padding="3 3 3 3">')
 			table.insert(lines, '      <Image id="histBtn' .. i .. '_img"')
 			table.insert(lines, '        image="' .. imgURL .. '"')
-			table.insert(lines, '        width="100" height="100"')
+			table.insert(lines, '        width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '"')
 			table.insert(lines, '        preserveAspect="true"')
 			table.insert(lines, '        active="' .. (hasImage and "True" or "False") .. '" />')
 			table.insert(lines, '      <Text id="histBtn' .. i .. '_txt"')
-			table.insert(lines, '        text="' .. txtLabel .. '"')
-			table.insert(lines, '        fontSize="' .. txtSize .. '"')
+			table.insert(lines, '        text="' .. xmlAttrText(txtLabel) .. '"')
+			table.insert(lines, '        fontSize="' .. HIST_LOOK.ouiFont .. '" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="' .. HIST_LOOK.ouiFont .. '"')
+			table.insert(lines, '        fontStyle="Bold" shadow="#000000CC" shadowDistance="2 -2"')   -- readability test (chunk 3)
 			table.insert(lines, '        color="' .. txtColor .. '"')
 			table.insert(lines, '        alignment="MiddleCenter"')
-			table.insert(lines, '        width="80" height="80"')
+			table.insert(lines, '        width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
 			table.insert(lines, sizeBadgeXml('histBtn' .. i .. '_warn', sc, 28, 18))
 			table.insert(lines, '    </Button>')
@@ -1560,12 +1593,12 @@
 			local entry = tokenHistory[histIndex(i)]
 			table.insert(lines, '    <Button id="delBtn' .. i .. '"')
 			table.insert(lines, '      onClick="btn_deleteHistory_' .. i .. '"')
-			table.insert(lines, '      ' .. btnStyle("danger"))
+			table.insert(lines, '      ' .. btnStyle("deleteSlot"))
 			table.insert(lines, '      width="100" height="100"')
 			table.insert(lines, '      padding="3 3 3 3">')
 			-- Always created (hidden when empty) so a page turn can fill it via setAttribute
 			local dImg = (entry and entry.imageURL) or ""
-			table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. dImg .. '" width="100" height="100" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
+			table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. dImg .. '" width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
 			table.insert(lines, '      <Panel width="100" height="100" color="#AA000066" />')
 			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="50" alignment="MiddleCenter" /></Button>')
 		end
@@ -1954,7 +1987,7 @@
 			local style    = isActive and "active" or (entry and "historySlot" or "ghost")
 			local hasImage = entry and entry.imageURL and entry.imageURL ~= ""
 			local imgURL   = hasImage and entry.imageURL or ""
-			local txtLabel = entry and shortName(stripBBCode(entry.name), 4, 2) or "·"
+			local txtLabel = hudHistLabel(entry)
 			local txtColor = entry and "#FFFFFF" or "#303030"
 			local sc       = entry and sizeClass(entry.byteSize)
 			local tooltipText = historyTooltip(entry)
@@ -1967,12 +2000,14 @@
 			table.insert(lines, '      padding="2 2 2 2">')
 			table.insert(lines, '      <Image id="TokenApplier_hud_hist_' .. i .. '_img"')
 			table.insert(lines, '        image="' .. imgURL .. '"')
-			table.insert(lines, '        width="50" height="50"')
+			table.insert(lines, '        width="' .. HIST_LOOK.hudImg .. '" height="' .. HIST_LOOK.hudImg .. '"')
 			table.insert(lines, '        preserveAspect="true"')
 			table.insert(lines, '        active="' .. (hasImage and "True" or "False") .. '" />')
 			table.insert(lines, '      <Text id="TokenApplier_hud_hist_' .. i .. '_txt"')
-			table.insert(lines, '        text="' .. txtLabel .. '"')
-			table.insert(lines, '        fontSize="14"')
+			table.insert(lines, '        text="' .. xmlAttrText(txtLabel) .. '"')
+			table.insert(lines, '        fontSize="' .. HIST_LOOK.hudFont .. '" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="' .. HIST_LOOK.hudFont .. '"')
+			table.insert(lines, '        fontStyle="Bold" shadow="#000000CC" shadowDistance="1 -1"')   -- readability test (chunk 3)
+			table.insert(lines, '        width="' .. HIST_LOOK.hudImg .. '" height="' .. HIST_LOOK.hudImg .. '"')
 			table.insert(lines, '        color="' .. txtColor .. '"')
 			table.insert(lines, '        alignment="MiddleCenter"')
 			table.insert(lines, '        active="' .. (hasImage and "False" or "True") .. '" />')
@@ -1999,12 +2034,12 @@
 			local g = guid
 			table.insert(lines, '    <Button id="TokenApplier_hud_delBtn' .. i .. '"')
 			table.insert(lines, '      onClick="' .. g .. '/hud_deleteHistory_' .. i .. '"')
-			table.insert(lines, '      ' .. btnStyle("danger"))
+			table.insert(lines, '      ' .. btnStyle("deleteSlot"))
 			table.insert(lines, '      width="54" height="54"')
 			table.insert(lines, '      padding="2 2 2 2">')
 			-- Always created (hidden when empty) so a page turn can fill it via setAttribute
 			local dImg = (entry and entry.imageURL) or ""
-			table.insert(lines, '      <Image id="TokenApplier_hud_delBtn' .. i .. '_img" image="' .. dImg .. '" width="50" height="50" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
+			table.insert(lines, '      <Image id="TokenApplier_hud_delBtn' .. i .. '_img" image="' .. dImg .. '" width="' .. HIST_LOOK.hudImg .. '" height="' .. HIST_LOOK.hudImg .. '" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
 			table.insert(lines, '      <Panel width="54" height="54" color="#AA000066" />')
 			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="28" alignment="MiddleCenter" /></Button>')
 		end
@@ -2093,7 +2128,7 @@
 	    table.insert(lines, '  ' .. btnStyle("lookTemplate"))   -- 1.4.2 look test
 	    table.insert(lines, '  fontSize="14"')
 	    table.insert(lines, '  tooltip="Set token template from selected object">')
-	    table.insert(lines, '  <Text id="TokenApplier_hud_setTemplate_text" text="' .. xmlEscape(hudTemplateLabel()):gsub("\n", "&#10;") .. '" color="' .. BTN_STYLE.lookTemplate.textColor .. '" shadow="#000000AA" shadowDistance="1 -1" fontSize="14" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="14" width="160" height="30" alignment="MiddleCenter" /></Button>')   -- best fit: 2-line names shrink to fit the 30px height instead of losing line 2
+	    table.insert(lines, '  <Text id="TokenApplier_hud_setTemplate_text" text="' .. xmlAttrText(hudTemplateLabel()) .. '" color="' .. BTN_STYLE.lookTemplate.textColor .. '" shadow="#000000AA" shadowDistance="1 -1" fontSize="14" resizeTextForBestFit="true" resizeTextMinSize="8" resizeTextMaxSize="14" width="160" height="30" alignment="MiddleCenter" /></Button>')   -- best fit: 2-line names shrink to fit the 30px height instead of losing line 2
 		
 		-- ── Size warning ──
 		local warnText  = templateCache.byteSize > SIZE_MASSIVE and "⚠ Very large" or "⚠ Large object"
