@@ -2222,9 +2222,9 @@
 		table.insert(lines, '  rotation="0 0 0"')
 		table.insert(lines, '  width="300" height="300"')
 		table.insert(lines, '  color="#00000000">')
-		table.insert(lines, '  <Image id="previewImg" image="' .. previewImage .. '" width="150" height="150" preserveAspect="true" active="' .. (hasImage and "True" or "False") .. '" />')
+		table.insert(lines, '  <Image id="previewImg" image="' .. xmlEscape(previewImage) .. '" width="150" height="150" preserveAspect="true" active="' .. (hasImage and "True" or "False") .. '" />')
 		table.insert(lines, '  <Panel id="previewTextPanel" width="150" height="150" color="' .. op("#000000CC") .. '" rectAlignment="MiddleCenter" active="' .. (hasImage and "False" or "True") .. '">')
-		table.insert(lines, '    <Text id="previewText" text="' .. previewText .. '" fontSize="22" color="#FFFFFF" fontStyle="Bold" alignment="MiddleCenter" width="140" height="140" />')
+		table.insert(lines, '    <Text id="previewText" text="' .. xmlAttrText(previewText) .. '" fontSize="22" color="#FFFFFF" fontStyle="Bold" alignment="MiddleCenter" width="140" height="140" />')
 		table.insert(lines, '  </Panel>')
 		table.insert(lines, '</Panel>')
 
@@ -2257,7 +2257,7 @@
 			table.insert(lines, '      width="100" height="100"')
 			table.insert(lines, '      padding="3 3 3 3">')
 			table.insert(lines, '      <Image id="histBtn' .. i .. '_img"')
-			table.insert(lines, '        image="' .. imgURL .. '"')
+			table.insert(lines, '        image="' .. xmlEscape(imgURL) .. '"')
 			table.insert(lines, '        width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '"')
 			table.insert(lines, '        preserveAspect="true"')
 			table.insert(lines, '        active="' .. (hasImage and "True" or "False") .. '" />')
@@ -2296,7 +2296,7 @@
 			table.insert(lines, '      padding="3 3 3 3">')
 			-- Always created (hidden when empty) so a page turn can fill it via setAttribute
 			local dImg = (entry and entry.imageURL) or ""
-			table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. dImg .. '" width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
+			table.insert(lines, '      <Image id="delBtn' .. i .. '_img" image="' .. xmlEscape(dImg) .. '" width="' .. HIST_LOOK.ouiImg .. '" height="' .. HIST_LOOK.ouiImg .. '" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
 			table.insert(lines, '      <Panel width="100" height="100" color="#AA000066" />')
 			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="50" alignment="MiddleCenter" /></Button>')
 		end
@@ -2564,7 +2564,7 @@
 	    table.insert(lines, '  width="448" height="100"')
 	    table.insert(lines, '  fontSize="26"')
 	    local ts = BTN_STYLE.template
-		table.insert(lines, '  ><Text id="setTemplateBtn_text" text="' .. templateLabel .. '" color="' .. ts.textColor .. '" fontSize="26" /></Button>')
+		table.insert(lines, '  ><Text id="setTemplateBtn_text" text="' .. xmlAttrText(templateLabel) .. '" color="' .. ts.textColor .. '" fontSize="26" /></Button>')
 		local templateLabel = templateCache.label
 		
 		-- large token warning
@@ -2841,7 +2841,7 @@
 			table.insert(lines, '      width="54" height="54"')
 			table.insert(lines, '      padding="2 2 2 2">')
 			table.insert(lines, '      <Image id="TokenApplier_hud_hist_' .. i .. '_img"')
-			table.insert(lines, '        image="' .. imgURL .. '"')
+			table.insert(lines, '        image="' .. xmlEscape(imgURL) .. '"')
 			table.insert(lines, '        width="' .. HIST_LOOK.hudImg .. '" height="' .. HIST_LOOK.hudImg .. '"')
 			table.insert(lines, '        preserveAspect="true"')
 			table.insert(lines, '        active="' .. (hasImage and "True" or "False") .. '" />')
@@ -2900,7 +2900,7 @@
 			table.insert(lines, '      padding="2 2 2 2">')
 			-- Always created (hidden when empty) so a page turn can fill it via setAttribute
 			local dImg = (entry and entry.imageURL) or ""
-			table.insert(lines, '      <Image id="TokenApplier_hud_delBtn' .. i .. '_img" image="' .. dImg .. '" width="' .. HIST_LOOK.hudImg .. '" height="' .. HIST_LOOK.hudImg .. '" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
+			table.insert(lines, '      <Image id="TokenApplier_hud_delBtn' .. i .. '_img" image="' .. xmlEscape(dImg) .. '" width="' .. HIST_LOOK.hudImg .. '" height="' .. HIST_LOOK.hudImg .. '" preserveAspect="true" active="' .. (dImg ~= "" and "True" or "False") .. '" />')
 			table.insert(lines, '      <Panel width="54" height="54" color="#AA000066" />')
 			table.insert(lines, '      <Text text="✕" color="#FF6666FF" fontSize="28" alignment="MiddleCenter" /></Button>')
 		end
